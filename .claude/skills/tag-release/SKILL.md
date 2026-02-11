@@ -1,5 +1,5 @@
 ---
-name: release
+name: tag-release
 description: Tag and push a new release. Goreleaser GitHub Action handles the rest.
 disable-model-invocation: true
 argument-hint: "[version, e.g. v0.2.0]"
