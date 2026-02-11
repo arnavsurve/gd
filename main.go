@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/bluekeyes/go-gitdiff/gitdiff"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -15,7 +16,9 @@ import (
 
 var flagMain bool
 
-// --- Git types ---
+const sideBySideMinWidth = 120
+
+// ==================== Git Types ====================
 
 type fileStatus struct {
 	path      string
@@ -38,7 +41,7 @@ func (f fileStatus) statusLabel() string {
 	return s
 }
 
-// --- Git operations ---
+// ==================== Git Operations ====================
 
 func getChangedFiles() ([]fileStatus, error) {
 	out, err := exec.Command("git", "status", "--porcelain").Output()
@@ -98,17 +101,15 @@ func getMainFiles() ([]fileStatus, error) {
 	return files, nil
 }
 
-func diffShellCmd(f fileStatus, fullFile bool, width int) string {
+func getDiffOutput(f fileStatus, fullFile bool) string {
 	ctx := ""
 	if fullFile {
 		ctx = "-U99999 "
 	}
-
-	var diffPart string
+	var cmds []string
 	if flagMain {
-		diffPart = fmt.Sprintf("git diff %smain...HEAD -- %q", ctx, f.path)
+		cmds = append(cmds, fmt.Sprintf("git diff %smain...HEAD -- %q", ctx, f.path))
 	} else {
-		var cmds []string
 		if f.unstaged {
 			cmds = append(cmds, fmt.Sprintf("git diff %s-- %q", ctx, f.path))
 		}
@@ -118,21 +119,20 @@ func diffShellCmd(f fileStatus, fullFile bool, width int) string {
 		if f.untracked {
 			cmds = append(cmds, fmt.Sprintf("git diff --no-index %s-- /dev/null %q 2>/dev/null", ctx, f.path))
 		}
-		if len(cmds) == 1 {
-			diffPart = cmds[0]
-		} else {
-			diffPart = "{ " + strings.Join(cmds, "; ") + "; }"
-		}
 	}
 
-	widthFlag := ""
-	if width > 0 {
-		widthFlag = fmt.Sprintf("--term-width %d ", width)
+	var cmd string
+	if len(cmds) == 1 {
+		cmd = cmds[0]
+	} else {
+		cmd = "{ " + strings.Join(cmds, "; ") + "; }"
 	}
-	return diffPart + " | git-split-diffs --color " + widthFlag
+
+	out, _ := exec.Command("sh", "-c", cmd).CombinedOutput()
+	return string(out)
 }
 
-// --- Tree ---
+// ==================== Tree ====================
 
 type treeNode struct {
 	name     string
@@ -141,10 +141,9 @@ type treeNode struct {
 }
 
 type displayLine struct {
-	text   string
 	file   *fileStatus
 	indent int
-	name   string // display name (filename or dirname/)
+	name   string
 }
 
 func buildTree(files []fileStatus) []*treeNode {
@@ -196,46 +195,290 @@ func flattenTree(nodes []*treeNode, indent int) []displayLine {
 	var lines []displayLine
 	for _, n := range nodes {
 		if n.file != nil {
-			lines = append(lines, displayLine{
-				file:   n.file,
-				indent: indent,
-				name:   n.name,
-			})
+			lines = append(lines, displayLine{file: n.file, indent: indent, name: n.name})
 		} else {
-			lines = append(lines, displayLine{
-				indent: indent,
-				name:   n.name + "/",
-			})
+			lines = append(lines, displayLine{indent: indent, name: n.name + "/"})
 			lines = append(lines, flattenTree(n.children, indent+1)...)
 		}
 	}
 	return lines
 }
 
-// --- Styles ---
+// ==================== Diff Rendering ====================
 
 var (
-	dirStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	fileStyle      = lipgloss.NewStyle()
-	cursorStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(lipgloss.Color("8"))
-	stagedBadge    = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-	unstagedBadge  = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
-	untrackedBadge = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	borderStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	searchStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
-	titleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+	addStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	delStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	ctxStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+	lineNumSty  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	hunkHdrSty  = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Faint(true)
+	fileHdrSty  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+	addBgSty    = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Background(lipgloss.Color("22"))
+	delBgSty    = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Background(lipgloss.Color("52"))
+	gutterSty   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 )
 
-// --- Bubbletea ---
+func expandTabs(s string) string {
+	return strings.ReplaceAll(s, "\t", "    ")
+}
+
+func trimLine(s string) string {
+	return strings.TrimRight(s, "\n\r")
+}
+
+func truncStr(s string, w int) string {
+	runes := []rune(s)
+	if len(runes) <= w {
+		return s
+	}
+	if w <= 1 {
+		return "…"
+	}
+	return string(runes[:w-1]) + "…"
+}
+
+func padStr(s string, w int) string {
+	runes := []rune(s)
+	if len(runes) >= w {
+		return s
+	}
+	return s + strings.Repeat(" ", w-len(runes))
+}
+
+func fitStr(s string, w int) string {
+	return padStr(truncStr(s, w), w)
+}
+
+// lineGroup groups consecutive lines with the same operation.
+type lineGroup struct {
+	op    gitdiff.LineOp
+	lines []string
+}
+
+func groupLines(lines []gitdiff.Line) []lineGroup {
+	var groups []lineGroup
+	for _, l := range lines {
+		text := expandTabs(trimLine(l.Line))
+		if len(groups) > 0 && groups[len(groups)-1].op == l.Op {
+			groups[len(groups)-1].lines = append(groups[len(groups)-1].lines, text)
+		} else {
+			groups = append(groups, lineGroup{op: l.Op, lines: []string{text}})
+		}
+	}
+	return groups
+}
+
+func renderDiff(raw string, width int) string {
+	if width <= 0 {
+		width = 80
+	}
+	files, _, err := gitdiff.Parse(strings.NewReader(raw))
+	if err != nil || len(files) == 0 {
+		return raw
+	}
+
+	var b strings.Builder
+	for i, f := range files {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		renderFileDiff(&b, f, width)
+	}
+	return b.String()
+}
+
+func renderFileDiff(b *strings.Builder, f *gitdiff.File, width int) {
+	name := f.NewName
+	if name == "" {
+		name = f.OldName
+	}
+	header := "── " + name + " "
+	pad := width - len([]rune(header))
+	if pad > 0 {
+		header += strings.Repeat("─", pad)
+	}
+	b.WriteString(fileHdrSty.Render(header))
+	b.WriteByte('\n')
+
+	if f.IsBinary {
+		b.WriteString(ctxStyle.Render("  Binary file"))
+		b.WriteByte('\n')
+		return
+	}
+
+	for _, frag := range f.TextFragments {
+		if frag.Comment != "" {
+			b.WriteString(hunkHdrSty.Render(frag.Comment))
+			b.WriteByte('\n')
+		}
+		if width >= sideBySideMinWidth {
+			renderSideBySide(b, frag, width)
+		} else {
+			renderUnified(b, frag, width)
+		}
+	}
+}
+
+func renderSideBySide(b *strings.Builder, frag *gitdiff.TextFragment, width int) {
+	// Layout: [lnum 4] [space] [left colW] [gutter 3] [rnum 4] [space] [right colW]
+	// 4 + 1 + colW + 3 + 4 + 1 + colW = width => colW = (width - 13) / 2
+	const numW = 4
+	colW := (width - 13) / 2
+	if colW < 10 {
+		colW = 10
+	}
+
+	groups := groupLines(frag.Lines)
+	oldNum := int(frag.OldPosition)
+	newNum := int(frag.NewPosition)
+
+	emitRow := func(lNum int, lText string, lSty lipgloss.Style, rNum int, rText string, rSty lipgloss.Style) {
+		// Left line number
+		if lNum > 0 {
+			b.WriteString(lineNumSty.Render(fmt.Sprintf("%*d", numW, lNum)))
+		} else {
+			b.WriteString(lineNumSty.Render(strings.Repeat(" ", numW)))
+		}
+		b.WriteByte(' ')
+
+		// Left text
+		b.WriteString(lSty.Render(fitStr(lText, colW)))
+
+		// Gutter
+		b.WriteString(gutterSty.Render(" │ "))
+
+		// Right line number
+		if rNum > 0 {
+			b.WriteString(lineNumSty.Render(fmt.Sprintf("%*d", numW, rNum)))
+		} else {
+			b.WriteString(lineNumSty.Render(strings.Repeat(" ", numW)))
+		}
+		b.WriteByte(' ')
+
+		// Right text
+		b.WriteString(rSty.Render(fitStr(rText, colW)))
+		b.WriteByte('\n')
+	}
+
+	for i := 0; i < len(groups); i++ {
+		g := groups[i]
+		switch g.op {
+		case gitdiff.OpContext:
+			for _, text := range g.lines {
+				emitRow(oldNum, text, ctxStyle, newNum, text, ctxStyle)
+				oldNum++
+				newNum++
+			}
+
+		case gitdiff.OpDelete:
+			// Check if next group is add (modification pair)
+			var addGroup *lineGroup
+			if i+1 < len(groups) && groups[i+1].op == gitdiff.OpAdd {
+				addGroup = &groups[i+1]
+				i++
+			}
+
+			maxLen := len(g.lines)
+			if addGroup != nil && len(addGroup.lines) > maxLen {
+				maxLen = len(addGroup.lines)
+			}
+
+			for j := 0; j < maxLen; j++ {
+				var lNum int
+				var lText string
+				lSty := delBgSty
+				var rNum int
+				var rText string
+				rSty := addBgSty
+
+				if j < len(g.lines) {
+					lNum = oldNum
+					lText = g.lines[j]
+					oldNum++
+				} else {
+					lSty = ctxStyle
+				}
+
+				if addGroup != nil && j < len(addGroup.lines) {
+					rNum = newNum
+					rText = addGroup.lines[j]
+					newNum++
+				} else {
+					rSty = ctxStyle
+				}
+
+				emitRow(lNum, lText, lSty, rNum, rText, rSty)
+			}
+
+		case gitdiff.OpAdd:
+			// Lone add (not preceded by delete)
+			for _, text := range g.lines {
+				emitRow(0, "", ctxStyle, newNum, text, addBgSty)
+				newNum++
+			}
+		}
+	}
+}
+
+func renderUnified(b *strings.Builder, frag *gitdiff.TextFragment, width int) {
+	const numW = 4
+	// Layout: [oldnum 4] [newnum 4] [space] [op 1] [space] [text]
+	textW := width - numW*2 - 4
+	if textW < 10 {
+		textW = 10
+	}
+
+	oldNum := int(frag.OldPosition)
+	newNum := int(frag.NewPosition)
+
+	for _, line := range frag.Lines {
+		text := expandTabs(trimLine(line.Line))
+
+		switch line.Op {
+		case gitdiff.OpContext:
+			b.WriteString(lineNumSty.Render(fmt.Sprintf("%*d %*d", numW, oldNum, numW, newNum)))
+			b.WriteString(ctxStyle.Render("   " + truncStr(text, textW)))
+			oldNum++
+			newNum++
+
+		case gitdiff.OpDelete:
+			b.WriteString(lineNumSty.Render(fmt.Sprintf("%*d %*s", numW, oldNum, numW, "")))
+			b.WriteString(delStyle.Render(" - " + truncStr(text, textW)))
+			oldNum++
+
+		case gitdiff.OpAdd:
+			b.WriteString(lineNumSty.Render(fmt.Sprintf("%*s %*d", numW, "", numW, newNum)))
+			b.WriteString(addStyle.Render(" + " + truncStr(text, textW)))
+			newNum++
+		}
+		b.WriteByte('\n')
+	}
+}
+
+// ==================== TUI Styles ====================
+
+var (
+	dirSty       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
+	fileSty      = lipgloss.NewStyle()
+	cursorSty    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(lipgloss.Color("8"))
+	stagedBadge  = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	unstBadge    = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
+	untrkBadge   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	borderSty    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	searchSty    = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
+	titleSty     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+)
+
+// ==================== TUI Model ====================
 
 type diffLoadedMsg struct{ content string }
 type execFinishedMsg struct{ err error }
 
 type model struct {
-	allLines []displayLine // all tree lines
-	filtered []int         // indices into allLines matching search
-	cursor   int           // index into filtered
-	scroll   int           // scroll offset for tree pane
+	allLines []displayLine
+	filtered []int
+	cursor   int
+	scroll   int
 
 	searching bool
 	query     string
@@ -243,7 +486,7 @@ type model struct {
 	viewport viewport.Model
 	width    int
 	height   int
-	treeW    int // width of tree pane
+	treeW    int
 	ready    bool
 }
 
@@ -257,7 +500,6 @@ func initialModel(files []fileStatus) model {
 	}
 	m.updateFilter()
 
-	// Start cursor on first file line
 	for i, idx := range m.filtered {
 		if m.allLines[idx].file != nil {
 			m.cursor = i
@@ -271,24 +513,24 @@ func initialModel(files []fileStatus) model {
 func (m *model) updateFilter() {
 	m.filtered = nil
 	q := strings.ToLower(m.query)
+
 	for i, line := range m.allLines {
 		if q == "" {
 			m.filtered = append(m.filtered, i)
 			continue
 		}
-		// Match files by path, always show parent dirs
 		if line.file != nil && strings.Contains(strings.ToLower(line.file.path), q) {
 			m.filtered = append(m.filtered, i)
 		} else if line.file == nil && strings.Contains(strings.ToLower(line.name), q) {
 			m.filtered = append(m.filtered, i)
 		}
 	}
-	// When filtering, also include parent directories of matched files
+
+	// Include parent directories of matched files
 	if q != "" {
 		dirSet := map[int]bool{}
 		for _, idx := range m.filtered {
 			if m.allLines[idx].file != nil {
-				// Walk backwards to find parent dirs
 				for j := idx - 1; j >= 0; j-- {
 					if m.allLines[j].file == nil && m.allLines[j].indent < m.allLines[idx].indent {
 						dirSet[j] = true
@@ -299,7 +541,6 @@ func (m *model) updateFilter() {
 				}
 			}
 		}
-		// Merge and re-sort
 		existing := map[int]bool{}
 		for _, idx := range m.filtered {
 			existing[idx] = true
@@ -335,14 +576,14 @@ func (m model) loadPreview() tea.Cmd {
 		return func() tea.Msg { return diffLoadedMsg{content: ""} }
 	}
 	file := *f
-	width := m.width - m.treeW - 1
-	if width < 40 {
-		width = 40
+	vpW := m.width - m.treeW - 1
+	if vpW < 40 {
+		vpW = 40
 	}
 	return func() tea.Msg {
-		cmd := diffShellCmd(file, false, width)
-		out, _ := exec.Command("sh", "-c", cmd).CombinedOutput()
-		return diffLoadedMsg{content: string(out)}
+		raw := getDiffOutput(file, false)
+		rendered := renderDiff(raw, vpW)
+		return diffLoadedMsg{content: rendered}
 	}
 }
 
@@ -351,8 +592,11 @@ func (m model) openFullDiff() tea.Cmd {
 	if f == nil {
 		return nil
 	}
-	cmd := diffShellCmd(*f, true, 0) + " | less -RFX"
-	c := exec.Command("sh", "-c", cmd)
+	raw := getDiffOutput(*f, true)
+	rendered := renderDiff(raw, m.width)
+
+	c := exec.Command("less", "-RFX")
+	c.Stdin = strings.NewReader(rendered)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return execFinishedMsg{err: err}
 	})
@@ -370,7 +614,7 @@ func (m *model) moveCursor(delta int) {
 	if m.cursor >= n {
 		m.cursor = n - 1
 	}
-	visibleH := m.height - 2 // minus title and search/status line
+	visibleH := m.height - 2
 	if visibleH < 1 {
 		visibleH = 1
 	}
@@ -385,12 +629,10 @@ func (m *model) moveCursor(delta int) {
 func (m model) renderTree() string {
 	var b strings.Builder
 
-	// Title
-	title := titleStyle.Render("Changed Files")
-	b.WriteString(title)
+	b.WriteString(titleSty.Render("Changed Files"))
 	b.WriteByte('\n')
 
-	visibleH := m.height - 2 // title + search line
+	visibleH := m.height - 2
 	if visibleH < 1 {
 		visibleH = 1
 	}
@@ -400,66 +642,62 @@ func (m model) renderTree() string {
 		end = len(m.filtered)
 	}
 
-	contentW := m.treeW - 1 // minus right border
+	contentW := m.treeW - 1
 
 	for i := m.scroll; i < end; i++ {
 		lineIdx := m.filtered[i]
 		line := m.allLines[lineIdx]
 		indent := strings.Repeat("  ", line.indent)
 
+		var plain string
 		var rendered string
 		if line.file == nil {
-			rendered = indent + dirStyle.Render(line.name)
+			plain = indent + line.name
+			rendered = indent + dirSty.Render(line.name)
 		} else {
 			badge := ""
+			badgePlain := ""
 			if line.file.untracked {
-				badge = untrackedBadge.Render("?")
+				badge = untrkBadge.Render("?")
+				badgePlain = "?"
 			} else if line.file.staged && line.file.unstaged {
-				badge = stagedBadge.Render("S") + unstagedBadge.Render("M")
+				badge = stagedBadge.Render("S") + unstBadge.Render("M")
+				badgePlain = "SM"
 			} else if line.file.staged {
 				badge = stagedBadge.Render("S") + " "
+				badgePlain = "S "
 			} else if line.file.unstaged {
-				badge = unstagedBadge.Render("M") + " "
+				badge = unstBadge.Render("M") + " "
+				badgePlain = "M "
 			}
-			rendered = indent + badge + " " + fileStyle.Render(line.name)
+			plain = indent + badgePlain + " " + line.name
+			rendered = indent + badge + " " + fileSty.Render(line.name)
 		}
 
 		if i == m.cursor {
-			// Build plain text to measure width
-			plain := indent
-			if line.file == nil {
-				plain += line.name
-			} else {
-				plain += line.file.statusLabel()
-				if len(line.file.statusLabel()) == 1 {
-					plain += " "
-				}
-				plain += " " + line.name
+			padN := contentW - len([]rune(plain))
+			if padN < 0 {
+				padN = 0
 			}
-			pad := contentW - len(plain)
-			if pad < 0 {
-				pad = 0
-			}
-			rendered = cursorStyle.Render(rendered + strings.Repeat(" ", pad))
+			rendered = cursorSty.Render(rendered + strings.Repeat(" ", padN))
 		}
 
-		// Truncate if wider than pane
-		b.WriteString(rendered)
+		b.WriteString(truncStr(rendered, contentW))
 		b.WriteByte('\n')
 	}
 
-	// Pad remaining lines
+	// Pad remaining
 	for i := end - m.scroll; i < visibleH; i++ {
 		b.WriteByte('\n')
 	}
 
-	// Search / status line at bottom
+	// Status line
 	if m.searching {
-		b.WriteString(searchStyle.Render("/" + m.query + "█"))
+		b.WriteString(searchSty.Render("/" + m.query + "█"))
 	} else if m.query != "" {
-		b.WriteString(searchStyle.Render("/" + m.query) + borderStyle.Render("  (esc to clear)"))
+		b.WriteString(searchSty.Render("/" + m.query) + borderSty.Render("  esc clear"))
 	} else {
-		b.WriteString(borderStyle.Render("/ search  enter view  q quit"))
+		b.WriteString(borderSty.Render("/ search  ⏎ view  q quit"))
 	}
 
 	return b.String()
@@ -472,7 +710,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "enter":
 				m.searching = false
-				// Jump to first file match
 				for i, idx := range m.filtered {
 					if m.allLines[idx].file != nil {
 						m.cursor = i
@@ -577,10 +814,9 @@ func (m model) View() string {
 
 	treeView := m.renderTree()
 
-	// Vertical border
 	var border strings.Builder
 	for i := 0; i < m.height; i++ {
-		border.WriteString(borderStyle.Render("│"))
+		border.WriteString(borderSty.Render("│"))
 		if i < m.height-1 {
 			border.WriteByte('\n')
 		}
