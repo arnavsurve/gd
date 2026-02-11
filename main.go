@@ -26,7 +26,7 @@ type fileStatus struct {
 
 func (f fileStatus) statusLabel() string {
 	if f.untracked {
-		return "U"
+		return "?"
 	}
 	var s string
 	if f.staged {
@@ -142,8 +142,9 @@ type treeNode struct {
 
 type displayLine struct {
 	text   string
-	file   *fileStatus // nil = directory header
+	file   *fileStatus
 	indent int
+	name   string // display name (filename or dirname/)
 }
 
 func buildTree(files []fileStatus) []*treeNode {
@@ -177,7 +178,6 @@ func buildTree(files []fileStatus) []*treeNode {
 
 func sortTree(nodes []*treeNode) {
 	sort.Slice(nodes, func(i, j int) bool {
-		// directories first, then files
 		iDir := nodes[i].file == nil
 		jDir := nodes[j].file == nil
 		if iDir != jDir {
@@ -196,9 +196,16 @@ func flattenTree(nodes []*treeNode, indent int) []displayLine {
 	var lines []displayLine
 	for _, n := range nodes {
 		if n.file != nil {
-			lines = append(lines, displayLine{file: n.file, indent: indent})
+			lines = append(lines, displayLine{
+				file:   n.file,
+				indent: indent,
+				name:   n.name,
+			})
 		} else {
-			lines = append(lines, displayLine{indent: indent, text: n.name + "/"})
+			lines = append(lines, displayLine{
+				indent: indent,
+				name:   n.name + "/",
+			})
 			lines = append(lines, flattenTree(n.children, indent+1)...)
 		}
 	}
@@ -208,13 +215,15 @@ func flattenTree(nodes []*treeNode, indent int) []displayLine {
 // --- Styles ---
 
 var (
-	dirStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	fileStyle     = lipgloss.NewStyle()
-	selectedStyle = lipgloss.NewStyle().Reverse(true)
-	stagedBadge   = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // green
-	unstagedBadge = lipgloss.NewStyle().Foreground(lipgloss.Color("11")) // yellow
-	untrackedBadge = lipgloss.NewStyle().Foreground(lipgloss.Color("8")) // gray
-	dividerStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	dirStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
+	fileStyle      = lipgloss.NewStyle()
+	cursorStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(lipgloss.Color("8"))
+	stagedBadge    = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	unstagedBadge  = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
+	untrackedBadge = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	borderStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	searchStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
+	titleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
 )
 
 // --- Bubbletea ---
@@ -223,13 +232,18 @@ type diffLoadedMsg struct{ content string }
 type execFinishedMsg struct{ err error }
 
 type model struct {
-	lines    []displayLine
-	cursor   int
-	scroll   int // scroll offset for tree pane
+	allLines []displayLine // all tree lines
+	filtered []int         // indices into allLines matching search
+	cursor   int           // index into filtered
+	scroll   int           // scroll offset for tree pane
+
+	searching bool
+	query     string
+
 	viewport viewport.Model
 	width    int
 	height   int
-	treeH    int
+	treeW    int // width of tree pane
 	ready    bool
 }
 
@@ -237,27 +251,80 @@ func initialModel(files []fileStatus) model {
 	tree := buildTree(files)
 	lines := flattenTree(tree, 0)
 
+	m := model{
+		allLines: lines,
+		viewport: viewport.New(0, 0),
+	}
+	m.updateFilter()
+
 	// Start cursor on first file line
-	cursor := 0
-	for i, l := range lines {
-		if l.file != nil {
-			cursor = i
+	for i, idx := range m.filtered {
+		if m.allLines[idx].file != nil {
+			m.cursor = i
 			break
 		}
 	}
 
-	return model{
-		lines:    lines,
-		cursor:   cursor,
-		viewport: viewport.New(0, 0),
+	return m
+}
+
+func (m *model) updateFilter() {
+	m.filtered = nil
+	q := strings.ToLower(m.query)
+	for i, line := range m.allLines {
+		if q == "" {
+			m.filtered = append(m.filtered, i)
+			continue
+		}
+		// Match files by path, always show parent dirs
+		if line.file != nil && strings.Contains(strings.ToLower(line.file.path), q) {
+			m.filtered = append(m.filtered, i)
+		} else if line.file == nil && strings.Contains(strings.ToLower(line.name), q) {
+			m.filtered = append(m.filtered, i)
+		}
+	}
+	// When filtering, also include parent directories of matched files
+	if q != "" {
+		dirSet := map[int]bool{}
+		for _, idx := range m.filtered {
+			if m.allLines[idx].file != nil {
+				// Walk backwards to find parent dirs
+				for j := idx - 1; j >= 0; j-- {
+					if m.allLines[j].file == nil && m.allLines[j].indent < m.allLines[idx].indent {
+						dirSet[j] = true
+						if m.allLines[j].indent == 0 {
+							break
+						}
+					}
+				}
+			}
+		}
+		// Merge and re-sort
+		existing := map[int]bool{}
+		for _, idx := range m.filtered {
+			existing[idx] = true
+		}
+		for idx := range dirSet {
+			if !existing[idx] {
+				m.filtered = append(m.filtered, idx)
+			}
+		}
+		sort.Ints(m.filtered)
+	}
+
+	if m.cursor >= len(m.filtered) {
+		m.cursor = len(m.filtered) - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
 	}
 }
 
 func (m model) Init() tea.Cmd { return nil }
 
 func (m model) selectedFile() *fileStatus {
-	if m.cursor >= 0 && m.cursor < len(m.lines) {
-		return m.lines[m.cursor].file
+	if m.cursor >= 0 && m.cursor < len(m.filtered) {
+		return m.allLines[m.filtered[m.cursor]].file
 	}
 	return nil
 }
@@ -268,7 +335,10 @@ func (m model) loadPreview() tea.Cmd {
 		return func() tea.Msg { return diffLoadedMsg{content: ""} }
 	}
 	file := *f
-	width := m.width
+	width := m.width - m.treeW - 1
+	if width < 40 {
+		width = 40
+	}
 	return func() tea.Msg {
 		cmd := diffShellCmd(file, false, width)
 		out, _ := exec.Command("sh", "-c", cmd).CombinedOutput()
@@ -289,7 +359,7 @@ func (m model) openFullDiff() tea.Cmd {
 }
 
 func (m *model) moveCursor(delta int) {
-	n := len(m.lines)
+	n := len(m.filtered)
 	if n == 0 {
 		return
 	}
@@ -300,33 +370,46 @@ func (m *model) moveCursor(delta int) {
 	if m.cursor >= n {
 		m.cursor = n - 1
 	}
-	// Keep cursor in view
+	visibleH := m.height - 2 // minus title and search/status line
+	if visibleH < 1 {
+		visibleH = 1
+	}
 	if m.cursor < m.scroll {
 		m.scroll = m.cursor
 	}
-	if m.cursor >= m.scroll+m.treeH {
-		m.scroll = m.cursor - m.treeH + 1
+	if m.cursor >= m.scroll+visibleH {
+		m.scroll = m.cursor - visibleH + 1
 	}
 }
 
 func (m model) renderTree() string {
-	if m.treeH <= 0 {
-		return ""
+	var b strings.Builder
+
+	// Title
+	title := titleStyle.Render("Changed Files")
+	b.WriteString(title)
+	b.WriteByte('\n')
+
+	visibleH := m.height - 2 // title + search line
+	if visibleH < 1 {
+		visibleH = 1
 	}
 
-	var b strings.Builder
-	end := m.scroll + m.treeH
-	if end > len(m.lines) {
-		end = len(m.lines)
+	end := m.scroll + visibleH
+	if end > len(m.filtered) {
+		end = len(m.filtered)
 	}
+
+	contentW := m.treeW - 1 // minus right border
 
 	for i := m.scroll; i < end; i++ {
-		line := m.lines[i]
+		lineIdx := m.filtered[i]
+		line := m.allLines[lineIdx]
 		indent := strings.Repeat("  ", line.indent)
 
 		var rendered string
 		if line.file == nil {
-			rendered = indent + dirStyle.Render(line.text)
+			rendered = indent + dirStyle.Render(line.name)
 		} else {
 			badge := ""
 			if line.file.untracked {
@@ -334,33 +417,49 @@ func (m model) renderTree() string {
 			} else if line.file.staged && line.file.unstaged {
 				badge = stagedBadge.Render("S") + unstagedBadge.Render("M")
 			} else if line.file.staged {
-				badge = stagedBadge.Render("S")
+				badge = stagedBadge.Render("S") + " "
 			} else if line.file.unstaged {
-				badge = unstagedBadge.Render("M")
+				badge = unstagedBadge.Render("M") + " "
 			}
-			name := fileStyle.Render(line.file.path[strings.LastIndex(line.file.path, "/")+1:])
-			rendered = indent + badge + " " + name
+			rendered = indent + badge + " " + fileStyle.Render(line.name)
 		}
 
 		if i == m.cursor {
-			// Pad to full width for highlight
+			// Build plain text to measure width
 			plain := indent
 			if line.file == nil {
-				plain += line.text
+				plain += line.name
 			} else {
-				plain += line.file.statusLabel() + " " + line.file.path[strings.LastIndex(line.file.path, "/")+1:]
+				plain += line.file.statusLabel()
+				if len(line.file.statusLabel()) == 1 {
+					plain += " "
+				}
+				plain += " " + line.name
 			}
-			pad := m.width - len(plain)
+			pad := contentW - len(plain)
 			if pad < 0 {
 				pad = 0
 			}
-			rendered = selectedStyle.Render(rendered + strings.Repeat(" ", pad))
+			rendered = cursorStyle.Render(rendered + strings.Repeat(" ", pad))
 		}
 
+		// Truncate if wider than pane
 		b.WriteString(rendered)
-		if i < end-1 {
-			b.WriteByte('\n')
-		}
+		b.WriteByte('\n')
+	}
+
+	// Pad remaining lines
+	for i := end - m.scroll; i < visibleH; i++ {
+		b.WriteByte('\n')
+	}
+
+	// Search / status line at bottom
+	if m.searching {
+		b.WriteString(searchStyle.Render("/" + m.query + "█"))
+	} else if m.query != "" {
+		b.WriteString(searchStyle.Render("/" + m.query) + borderStyle.Render("  (esc to clear)"))
+	} else {
+		b.WriteString(borderStyle.Render("/ search  enter view  q quit"))
 	}
 
 	return b.String()
@@ -369,8 +468,47 @@ func (m model) renderTree() string {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.searching {
+			switch msg.String() {
+			case "enter":
+				m.searching = false
+				// Jump to first file match
+				for i, idx := range m.filtered {
+					if m.allLines[idx].file != nil {
+						m.cursor = i
+						break
+					}
+				}
+				return m, m.loadPreview()
+			case "esc":
+				m.searching = false
+				m.query = ""
+				m.updateFilter()
+				return m, m.loadPreview()
+			case "backspace":
+				if len(m.query) > 0 {
+					m.query = m.query[:len(m.query)-1]
+					m.updateFilter()
+				}
+				return m, nil
+			default:
+				if len(msg.String()) == 1 {
+					m.query += msg.String()
+					m.updateFilter()
+				}
+				return m, nil
+			}
+		}
+
 		switch msg.String() {
-		case "q", "esc", "ctrl+c":
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		case "esc":
+			if m.query != "" {
+				m.query = ""
+				m.updateFilter()
+				return m, m.loadPreview()
+			}
 			return m, tea.Quit
 		case "up", "k":
 			prev := m.cursor
@@ -388,33 +526,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			return m, m.openFullDiff()
+		case "/":
+			m.searching = true
+			m.query = ""
+			return m, nil
 		}
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 
-		// Tree takes up to 30% or 10 lines, whichever is smaller
-		m.treeH = m.height * 30 / 100
-		if m.treeH > 10 {
-			m.treeH = 10
+		m.treeW = m.width * 30 / 100
+		if m.treeW < 30 {
+			m.treeW = 30
 		}
-		if m.treeH < 3 {
-			m.treeH = 3
+		if m.treeW > 50 {
+			m.treeW = 50
 		}
 
-		// Viewport gets the rest (minus 1 for divider)
-		vpH := m.height - m.treeH - 1
-		if vpH < 1 {
-			vpH = 1
+		vpW := m.width - m.treeW - 1
+		if vpW < 20 {
+			vpW = 20
 		}
-		m.viewport.Width = m.width
-		m.viewport.Height = vpH
+
+		m.viewport.Width = vpW
+		m.viewport.Height = m.height
 
 		if !m.ready {
 			m.ready = true
 			return m, m.loadPreview()
 		}
+		return m, m.loadPreview()
 
 	case diffLoadedMsg:
 		m.viewport.SetContent(msg.content)
@@ -425,11 +567,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadPreview()
 	}
 
-	// Let viewport handle scroll events
-	var vpCmd tea.Cmd
-	m.viewport, vpCmd = m.viewport.Update(msg)
-
-	return m, vpCmd
+	return m, nil
 }
 
 func (m model) View() string {
@@ -437,11 +575,20 @@ func (m model) View() string {
 		return "Loading..."
 	}
 
-	tree := m.renderTree()
-	divider := dividerStyle.Render(strings.Repeat("─", m.width))
-	preview := m.viewport.View()
+	treeView := m.renderTree()
 
-	return tree + "\n" + divider + "\n" + preview
+	// Vertical border
+	var border strings.Builder
+	for i := 0; i < m.height; i++ {
+		border.WriteString(borderStyle.Render("│"))
+		if i < m.height-1 {
+			border.WriteByte('\n')
+		}
+	}
+
+	diffView := m.viewport.View()
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, treeView, border.String(), diffView)
 }
 
 func main() {
