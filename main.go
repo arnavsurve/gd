@@ -15,11 +15,141 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 var flagMain bool
 
 const sideBySideMinWidth = 120
+
+// ==================== Color Palette ====================
+
+type palette struct {
+	bgAdd      string
+	bgDel      string
+	lineNum    string
+	hunkHdr    string
+	fileHdr    string
+	gutter     string
+	addInd     string
+	delInd     string
+	ctxDim     string
+	truncate   string
+	dir        string
+	file       string
+	cursorFg   string
+	cursorBg   string
+	staged     string
+	unstaged   string
+	untracked  string
+	border     string
+	search     string
+	title      string
+	chromaStyle string
+}
+
+var darkPalette = palette{
+	bgAdd:      "#122117",
+	bgDel:      "#2d1117",
+	lineNum:    "#484f58",
+	hunkHdr:    "#79c0ff",
+	fileHdr:    "#e6edf3",
+	gutter:     "#30363d",
+	addInd:     "#3fb950",
+	delInd:     "#f85149",
+	ctxDim:     "#8b949e",
+	truncate:   "#484f58",
+	dir:        "#79c0ff",
+	file:       "#e6edf3",
+	cursorFg:   "#e6edf3",
+	cursorBg:   "#30363d",
+	staged:     "#3fb950",
+	unstaged:   "#d29922",
+	untracked:  "#484f58",
+	border:     "#30363d",
+	search:     "#79c0ff",
+	title:      "#e6edf3",
+	chromaStyle: "monokai",
+}
+
+var lightPalette = palette{
+	bgAdd:      "#dafbe1",
+	bgDel:      "#ffebe9",
+	lineNum:    "#57606a",
+	hunkHdr:    "#0969da",
+	fileHdr:    "#1f2328",
+	gutter:     "#d0d7de",
+	addInd:     "#1a7f37",
+	delInd:     "#cf222e",
+	ctxDim:     "#656d76",
+	truncate:   "#57606a",
+	dir:        "#0969da",
+	file:       "#1f2328",
+	cursorFg:   "#1f2328",
+	cursorBg:   "#ddf4ff",
+	staged:     "#1a7f37",
+	unstaged:   "#9a6700",
+	untracked:  "#57606a",
+	border:     "#d0d7de",
+	search:     "#0969da",
+	title:      "#1f2328",
+	chromaStyle: "github",
+}
+
+// Active palette and styles, set in init()
+var pal palette
+
+var (
+	lineNumSty lipgloss.Style
+	hunkHdrSty lipgloss.Style
+	fileHdrSty lipgloss.Style
+	gutterSty  lipgloss.Style
+	addIndSty  lipgloss.Style
+	delIndSty  lipgloss.Style
+	ctxDimSty  lipgloss.Style
+	dirSty     lipgloss.Style
+	fileSty    lipgloss.Style
+	cursorSty  lipgloss.Style
+	stagedBadge lipgloss.Style
+	unstBadge  lipgloss.Style
+	untrkBadge lipgloss.Style
+	borderSty  lipgloss.Style
+	searchSty  lipgloss.Style
+	titleSty   lipgloss.Style
+)
+
+var bgColors map[diffBg]string
+
+func initTheme() {
+	if termenv.HasDarkBackground() {
+		pal = darkPalette
+	} else {
+		pal = lightPalette
+	}
+
+	lineNumSty = lipgloss.NewStyle().Foreground(lipgloss.Color(pal.lineNum))
+	hunkHdrSty = lipgloss.NewStyle().Foreground(lipgloss.Color(pal.hunkHdr)).Faint(true)
+	fileHdrSty = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(pal.fileHdr))
+	gutterSty = lipgloss.NewStyle().Foreground(lipgloss.Color(pal.gutter))
+	addIndSty = lipgloss.NewStyle().Foreground(lipgloss.Color(pal.addInd))
+	delIndSty = lipgloss.NewStyle().Foreground(lipgloss.Color(pal.delInd))
+	ctxDimSty = lipgloss.NewStyle().Foreground(lipgloss.Color(pal.ctxDim))
+	dirSty = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(pal.dir))
+	fileSty = lipgloss.NewStyle().Foreground(lipgloss.Color(pal.file))
+	cursorSty = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(pal.cursorFg)).Background(lipgloss.Color(pal.cursorBg))
+	stagedBadge = lipgloss.NewStyle().Foreground(lipgloss.Color(pal.staged))
+	unstBadge = lipgloss.NewStyle().Foreground(lipgloss.Color(pal.unstaged))
+	untrkBadge = lipgloss.NewStyle().Foreground(lipgloss.Color(pal.untracked))
+	borderSty = lipgloss.NewStyle().Foreground(lipgloss.Color(pal.border))
+	searchSty = lipgloss.NewStyle().Foreground(lipgloss.Color(pal.search))
+	titleSty = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(pal.title))
+
+	bgColors = map[diffBg]string{
+		bgNone: "",
+		bgAdd:  pal.bgAdd,
+		bgDel:  pal.bgDel,
+	}
+}
 
 // ==================== Git Types ====================
 
@@ -215,7 +345,7 @@ func newHighlighter(filename string) *highlighter {
 	}
 	lexer = chroma.Coalesce(lexer)
 
-	style := styles.Get("monokai")
+	style := styles.Get(pal.chromaStyle)
 	if style == nil {
 		style = styles.Fallback
 	}
@@ -230,13 +360,6 @@ const (
 	bgAdd
 	bgDel
 )
-
-// GitHub dark mode inspired colors
-var bgColors = map[diffBg]string{
-	bgNone: "",
-	bgAdd:  "#122117",
-	bgDel:  "#2d1117",
-}
 
 func (h *highlighter) renderLine(text string, w int, bg diffBg) string {
 	text = expandTabs(text)
@@ -290,7 +413,7 @@ func (h *highlighter) renderLine(text string, w int, bg diffBg) string {
 	}
 
 	if truncated {
-		s := lipgloss.NewStyle().Foreground(lipgloss.Color("#484f58"))
+		s := lipgloss.NewStyle().Foreground(lipgloss.Color(pal.truncate))
 		if bgColor != "" {
 			s = s.Background(lipgloss.Color(bgColor))
 		}
@@ -311,16 +434,6 @@ func (h *highlighter) renderLine(text string, w int, bg diffBg) string {
 }
 
 // ==================== Diff Rendering ====================
-
-var (
-	lineNumSty = lipgloss.NewStyle().Foreground(lipgloss.Color("#484f58"))
-	hunkHdrSty = lipgloss.NewStyle().Foreground(lipgloss.Color("#79c0ff")).Faint(true)
-	fileHdrSty = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e6edf3"))
-	gutterSty  = lipgloss.NewStyle().Foreground(lipgloss.Color("#30363d"))
-	addIndSty  = lipgloss.NewStyle().Foreground(lipgloss.Color("#3fb950"))
-	delIndSty  = lipgloss.NewStyle().Foreground(lipgloss.Color("#f85149"))
-	ctxDimSty  = lipgloss.NewStyle().Foreground(lipgloss.Color("#8b949e"))
-)
 
 func expandTabs(s string) string {
 	return strings.ReplaceAll(s, "\t", "    ")
@@ -540,20 +653,6 @@ func renderUnified(b *strings.Builder, frag *gitdiff.TextFragment, width int, hl
 		b.WriteByte('\n')
 	}
 }
-
-// ==================== TUI Styles ====================
-
-var (
-	dirSty      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#79c0ff"))
-	fileSty     = lipgloss.NewStyle().Foreground(lipgloss.Color("#e6edf3"))
-	cursorSty   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e6edf3")).Background(lipgloss.Color("#30363d"))
-	stagedBadge = lipgloss.NewStyle().Foreground(lipgloss.Color("#3fb950"))
-	unstBadge   = lipgloss.NewStyle().Foreground(lipgloss.Color("#d29922"))
-	untrkBadge  = lipgloss.NewStyle().Foreground(lipgloss.Color("#484f58"))
-	borderSty   = lipgloss.NewStyle().Foreground(lipgloss.Color("#30363d"))
-	searchSty   = lipgloss.NewStyle().Foreground(lipgloss.Color("#79c0ff"))
-	titleSty    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e6edf3"))
-)
 
 // ==================== TUI Model ====================
 
@@ -911,6 +1010,8 @@ func (m model) View() string {
 func main() {
 	flag.BoolVar(&flagMain, "main", false, "diff against main branch")
 	flag.Parse()
+
+	initTheme()
 
 	var files []fileStatus
 	var err error
