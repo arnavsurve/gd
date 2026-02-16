@@ -177,7 +177,7 @@ func (f fileStatus) statusLabel() string {
 // ==================== Git Operations ====================
 
 func getChangedFiles() ([]fileStatus, error) {
-	out, err := exec.Command("git", "status", "--porcelain").Output()
+	out, err := exec.Command("git", "status", "--porcelain", "-uall").Output()
 	if err != nil {
 		return nil, fmt.Errorf("git status: %w", err)
 	}
