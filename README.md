@@ -48,5 +48,15 @@ gd --main   # browse files changed vs main branch
 | `enter` | open full-file diff in less |
 | `q` in less | back to file browser |
 | `/` | search files |
+| `t` | toggle dark / light mode |
+| `T` | open syntax theme picker |
 | `esc` | clear search, or quit |
 | `q` | quit |
+
+### Themes
+
+`gd` detects your system theme at startup. Press `t` to toggle between dark and light mode manually (useful in tmux where system theme changes aren't always detected).
+
+Press `T` to open the theme picker. It shows only dark themes in dark mode and light themes in light mode, with a live preview as you scroll. Press `enter` to confirm or `esc` to cancel.
+
+Theme selections are saved per mode to `~/.config/gd/config.json` (or `~/Library/Application Support/gd/config.json` on macOS) and persist across sessions.
