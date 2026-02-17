@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -156,6 +158,72 @@ func applyTheme() {
 		bgAdd:  pal.bgAdd,
 		bgDel:  pal.bgDel,
 	}
+}
+
+func isStyleDark(name string) bool {
+	style := styles.Get(name)
+	if style == nil {
+		return true
+	}
+	bg := style.Get(chroma.Background).Background
+	if !bg.IsSet() {
+		return true
+	}
+	r := bg.Red()
+	g := bg.Green()
+	b := bg.Blue()
+	lum := 0.299*float64(r) + 0.587*float64(g) + 0.114*float64(b)
+	return lum < 128
+}
+
+// ==================== Config ====================
+
+type config struct {
+	DarkTheme  string `json:"darkTheme"`
+	LightTheme string `json:"lightTheme"`
+}
+
+var cfg config
+
+func configPath() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		dir = filepath.Join(os.Getenv("HOME"), ".config")
+	}
+	return filepath.Join(dir, "gd", "config.json")
+}
+
+func loadConfig() {
+	cfg = config{
+		DarkTheme:  darkPalette.chromaStyle,
+		LightTheme: lightPalette.chromaStyle,
+	}
+	data, err := os.ReadFile(configPath())
+	if err != nil {
+		return
+	}
+	var loaded config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		return
+	}
+	if loaded.DarkTheme != "" {
+		cfg.DarkTheme = loaded.DarkTheme
+		darkPalette.chromaStyle = loaded.DarkTheme
+	}
+	if loaded.LightTheme != "" {
+		cfg.LightTheme = loaded.LightTheme
+		lightPalette.chromaStyle = loaded.LightTheme
+	}
+}
+
+func saveConfig() {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return
+	}
+	dir := filepath.Dir(configPath())
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(configPath(), data, 0o644)
 }
 
 // ==================== Git Types ====================
@@ -676,6 +744,10 @@ type model struct {
 	searching bool
 	query     string
 
+	themePicking bool
+	themeNames   []string
+	themeCursor  int
+
 	viewport viewport.Model
 	width    int
 	height   int
@@ -815,7 +887,56 @@ func (m *model) moveCursor(delta int) {
 	}
 }
 
+func (m model) renderThemePicker() string {
+	var b strings.Builder
+	b.WriteString(titleSty.Render("Syntax Theme"))
+	b.WriteByte('\n')
+
+	visibleH := m.height - 2
+	if visibleH < 1 {
+		visibleH = 1
+	}
+
+	scroll := 0
+	if m.themeCursor >= visibleH {
+		scroll = m.themeCursor - visibleH + 1
+	}
+	end := scroll + visibleH
+	if end > len(m.themeNames) {
+		end = len(m.themeNames)
+	}
+
+	contentW := m.treeW - 1
+
+	for i := scroll; i < end; i++ {
+		name := m.themeNames[i]
+		display := fitStr(name, contentW)
+		if i == m.themeCursor {
+			b.WriteString(cursorSty.Render(display))
+		} else {
+			b.WriteString(fileSty.Render(display))
+		}
+		b.WriteByte('\n')
+	}
+
+	for i := end - scroll; i < visibleH; i++ {
+		b.WriteByte('\n')
+	}
+
+	modeLabel := "dark"
+	if !darkMode {
+		modeLabel = "light"
+	}
+	b.WriteString(searchSty.Render("Theme ("+modeLabel+")") +
+		borderSty.Render("  ⏎ select  esc cancel"))
+
+	return b.String()
+}
+
 func (m model) renderTree() string {
+	if m.themePicking {
+		return m.renderThemePicker()
+	}
 	var b strings.Builder
 	b.WriteString(titleSty.Render("Changed Files"))
 	b.WriteByte('\n')
@@ -890,7 +1011,7 @@ func (m model) renderTree() string {
 	} else if m.query != "" {
 		b.WriteString(searchSty.Render("/" + m.query) + borderSty.Render("  esc clear"))
 	} else {
-		b.WriteString(borderSty.Render("/ search  ⏎ view  t theme  q quit"))
+		b.WriteString(borderSty.Render("/ search  ⏎ view  t/T theme  q quit"))
 	}
 
 	return b.String()
@@ -930,6 +1051,47 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		if m.themePicking {
+			switch msg.String() {
+			case "up", "k":
+				if m.themeCursor > 0 {
+					m.themeCursor--
+					pal.chromaStyle = m.themeNames[m.themeCursor]
+					return m, m.loadPreview()
+				}
+				return m, nil
+			case "down", "j":
+				if m.themeCursor < len(m.themeNames)-1 {
+					m.themeCursor++
+					pal.chromaStyle = m.themeNames[m.themeCursor]
+					return m, m.loadPreview()
+				}
+				return m, nil
+			case "enter":
+				selected := m.themeNames[m.themeCursor]
+				if darkMode {
+					cfg.DarkTheme = selected
+					darkPalette.chromaStyle = selected
+				} else {
+					cfg.LightTheme = selected
+					lightPalette.chromaStyle = selected
+				}
+				pal.chromaStyle = selected
+				saveConfig()
+				m.themePicking = false
+				return m, m.loadPreview()
+			case "esc", "q":
+				if darkMode {
+					pal.chromaStyle = cfg.DarkTheme
+				} else {
+					pal.chromaStyle = cfg.LightTheme
+				}
+				m.themePicking = false
+				return m, m.loadPreview()
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -964,6 +1126,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			darkMode = !darkMode
 			applyTheme()
 			return m, m.loadPreview()
+		case "T":
+			m.themePicking = true
+			m.themeNames = nil
+			for _, name := range styles.Names() {
+				if isStyleDark(name) == darkMode {
+					m.themeNames = append(m.themeNames, name)
+				}
+			}
+			m.themeCursor = 0
+			for i, name := range m.themeNames {
+				if name == pal.chromaStyle {
+					m.themeCursor = i
+					break
+				}
+			}
+			return m, nil
 		}
 
 	case tea.WindowSizeMsg:
@@ -1022,6 +1200,7 @@ func main() {
 	flag.BoolVar(&flagMain, "main", false, "diff against main branch")
 	flag.Parse()
 
+	loadConfig()
 	initTheme()
 
 	var files []fileStatus
