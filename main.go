@@ -120,8 +120,15 @@ var (
 
 var bgColors map[diffBg]string
 
+var darkMode bool
+
 func initTheme() {
-	if termenv.HasDarkBackground() {
+	darkMode = termenv.HasDarkBackground()
+	applyTheme()
+}
+
+func applyTheme() {
+	if darkMode {
 		pal = darkPalette
 	} else {
 		pal = lightPalette
@@ -883,7 +890,7 @@ func (m model) renderTree() string {
 	} else if m.query != "" {
 		b.WriteString(searchSty.Render("/" + m.query) + borderSty.Render("  esc clear"))
 	} else {
-		b.WriteString(borderSty.Render("/ search  ⏎ view  q quit"))
+		b.WriteString(borderSty.Render("/ search  ⏎ view  t theme  q quit"))
 	}
 
 	return b.String()
@@ -953,6 +960,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searching = true
 			m.query = ""
 			return m, nil
+		case "t":
+			darkMode = !darkMode
+			applyTheme()
+			return m, m.loadPreview()
 		}
 
 	case tea.WindowSizeMsg:
