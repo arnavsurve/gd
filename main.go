@@ -49,8 +49,8 @@ type palette struct {
 }
 
 var darkPalette = palette{
-	bgAdd:      "#122117",
-	bgDel:      "#2d1117",
+	bgAdd:      "#1a2b1f",
+	bgDel:      "#2b1d1e",
 	lineNum:    "#484f58",
 	hunkHdr:    "#79c0ff",
 	fileHdr:    "#e6edf3",
@@ -69,12 +69,12 @@ var darkPalette = palette{
 	border:     "#30363d",
 	search:     "#79c0ff",
 	title:      "#e6edf3",
-	chromaStyle: "monokai",
+	chromaStyle: "tokyonight-night",
 }
 
 var lightPalette = palette{
-	bgAdd:      "#dafbe1",
-	bgDel:      "#ffebe9",
+	bgAdd:      "#e8f5e9",
+	bgDel:      "#fce8e6",
 	lineNum:    "#57606a",
 	hunkHdr:    "#0969da",
 	fileHdr:    "#1f2328",
@@ -93,7 +93,7 @@ var lightPalette = palette{
 	border:     "#d0d7de",
 	search:     "#0969da",
 	title:      "#1f2328",
-	chromaStyle: "github",
+	chromaStyle: "tokyonight-day",
 }
 
 // Active palette and styles, set in init()
