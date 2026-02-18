@@ -48,6 +48,7 @@ gd --main   # browse files changed vs main branch
 | `enter` | open full-file diff in less |
 | `q` in less | back to file browser |
 | `/` | search files |
+| `w` | toggle line wrap |
 | `t` | toggle dark / light mode |
 | `T` | open syntax theme picker |
 | `esc` | clear search, or quit |

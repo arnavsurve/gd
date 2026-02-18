@@ -123,6 +123,7 @@ var (
 var bgColors map[diffBg]string
 
 var darkMode bool
+var wrapLines bool
 
 func initTheme() {
 	darkMode = termenv.HasDarkBackground()
@@ -437,12 +438,14 @@ const (
 )
 
 func (h *highlighter) renderLine(text string, w int, bg diffBg) string {
-	text = expandTabs(text)
+	if !wrapLines {
+		text = expandTabs(text)
+	}
 
 	// Truncate plain text first (before adding ANSI codes)
 	runes := []rune(text)
 	truncated := false
-	if len(runes) > w-1 && w > 1 {
+	if !wrapLines && len(runes) > w-1 && w > 1 {
 		runes = runes[:w-1]
 		truncated = true
 		text = string(runes)
@@ -512,6 +515,28 @@ func (h *highlighter) renderLine(text string, w int, bg diffBg) string {
 
 func expandTabs(s string) string {
 	return strings.ReplaceAll(s, "\t", "    ")
+}
+
+// wrapText splits text into chunks of at most w runes.
+func wrapText(text string, w int) []string {
+	if w <= 0 {
+		return []string{text}
+	}
+	text = expandTabs(text)
+	runes := []rune(text)
+	if len(runes) <= w {
+		return []string{string(runes)}
+	}
+	var chunks []string
+	for len(runes) > 0 {
+		end := w
+		if end > len(runes) {
+			end = len(runes)
+		}
+		chunks = append(chunks, string(runes[:end]))
+		runes = runes[end:]
+	}
+	return chunks
 }
 
 func trimLine(s string) string {
@@ -619,22 +644,46 @@ func renderSideBySide(b *strings.Builder, frag *gitdiff.TextFragment, width int,
 	newNum := int(frag.NewPosition)
 
 	emitRow := func(lNum int, lText string, lBg diffBg, rNum int, rText string, rBg diffBg) {
-		if lNum > 0 {
-			b.WriteString(lineNumSty.Render(fmt.Sprintf("%*d", numW, lNum)))
+		var lChunks, rChunks []string
+		if wrapLines {
+			lChunks = wrapText(lText, colW)
+			rChunks = wrapText(rText, colW)
 		} else {
-			b.WriteString(strings.Repeat(" ", numW))
+			lChunks = []string{lText}
+			rChunks = []string{rText}
 		}
-		b.WriteByte(' ')
-		b.WriteString(hl.renderLine(lText, colW, lBg))
-		b.WriteString(gutterSty.Render(" │ "))
-		if rNum > 0 {
-			b.WriteString(lineNumSty.Render(fmt.Sprintf("%*d", numW, rNum)))
-		} else {
-			b.WriteString(strings.Repeat(" ", numW))
+
+		maxRows := len(lChunks)
+		if len(rChunks) > maxRows {
+			maxRows = len(rChunks)
 		}
-		b.WriteByte(' ')
-		b.WriteString(hl.renderLine(rText, colW, rBg))
-		b.WriteByte('\n')
+
+		for row := 0; row < maxRows; row++ {
+			if row == 0 && lNum > 0 {
+				b.WriteString(lineNumSty.Render(fmt.Sprintf("%*d", numW, lNum)))
+			} else {
+				b.WriteString(strings.Repeat(" ", numW))
+			}
+			b.WriteByte(' ')
+			if row < len(lChunks) {
+				b.WriteString(hl.renderLine(lChunks[row], colW, lBg))
+			} else {
+				b.WriteString(hl.renderLine("", colW, lBg))
+			}
+			b.WriteString(gutterSty.Render(" │ "))
+			if row == 0 && rNum > 0 {
+				b.WriteString(lineNumSty.Render(fmt.Sprintf("%*d", numW, rNum)))
+			} else {
+				b.WriteString(strings.Repeat(" ", numW))
+			}
+			b.WriteByte(' ')
+			if row < len(rChunks) {
+				b.WriteString(hl.renderLine(rChunks[row], colW, rBg))
+			} else {
+				b.WriteString(hl.renderLine("", colW, rBg))
+			}
+			b.WriteByte('\n')
+		}
 	}
 
 	for i := 0; i < len(groups); i++ {
@@ -700,32 +749,61 @@ func renderUnified(b *strings.Builder, frag *gitdiff.TextFragment, width int, hl
 	oldNum := int(frag.OldPosition)
 	newNum := int(frag.NewPosition)
 
+	blankPrefix := strings.Repeat(" ", numW*2+4)
+
 	for _, line := range frag.Lines {
 		text := trimLine(line.Line)
 
+		var chunks []string
+		if wrapLines {
+			chunks = wrapText(text, textW)
+		} else {
+			chunks = []string{text}
+		}
+
+		for ci, chunk := range chunks {
+			switch line.Op {
+			case gitdiff.OpContext:
+				if ci == 0 {
+					b.WriteString(lineNumSty.Render(fmt.Sprintf("%*d %*d", numW, oldNum, numW, newNum)))
+					b.WriteString("   ")
+				} else {
+					b.WriteString(blankPrefix)
+				}
+				b.WriteString(hl.renderLine(chunk, textW, bgNone))
+
+			case gitdiff.OpDelete:
+				if ci == 0 {
+					b.WriteString(lineNumSty.Render(fmt.Sprintf("%*d %*s", numW, oldNum, numW, "")))
+					b.WriteString(delIndSty.Render(" -"))
+					b.WriteByte(' ')
+				} else {
+					b.WriteString(blankPrefix)
+				}
+				b.WriteString(hl.renderLine(chunk, textW, bgDel))
+
+			case gitdiff.OpAdd:
+				if ci == 0 {
+					b.WriteString(lineNumSty.Render(fmt.Sprintf("%*s %*d", numW, "", numW, newNum)))
+					b.WriteString(addIndSty.Render(" +"))
+					b.WriteByte(' ')
+				} else {
+					b.WriteString(blankPrefix)
+				}
+				b.WriteString(hl.renderLine(chunk, textW, bgAdd))
+			}
+			b.WriteByte('\n')
+		}
+
 		switch line.Op {
 		case gitdiff.OpContext:
-			b.WriteString(lineNumSty.Render(fmt.Sprintf("%*d %*d", numW, oldNum, numW, newNum)))
-			b.WriteString("   ")
-			b.WriteString(hl.renderLine(text, textW, bgNone))
 			oldNum++
 			newNum++
-
 		case gitdiff.OpDelete:
-			b.WriteString(lineNumSty.Render(fmt.Sprintf("%*d %*s", numW, oldNum, numW, "")))
-			b.WriteString(delIndSty.Render(" -"))
-			b.WriteByte(' ')
-			b.WriteString(hl.renderLine(text, textW, bgDel))
 			oldNum++
-
 		case gitdiff.OpAdd:
-			b.WriteString(lineNumSty.Render(fmt.Sprintf("%*s %*d", numW, "", numW, newNum)))
-			b.WriteString(addIndSty.Render(" +"))
-			b.WriteByte(' ')
-			b.WriteString(hl.renderLine(text, textW, bgAdd))
 			newNum++
 		}
-		b.WriteByte('\n')
 	}
 }
 
@@ -1011,7 +1089,7 @@ func (m model) renderTree() string {
 	} else if m.query != "" {
 		b.WriteString(searchSty.Render("/" + m.query) + borderSty.Render("  esc clear"))
 	} else {
-		b.WriteString(borderSty.Render("/ search  ⏎ view  t/T theme  q quit"))
+		b.WriteString(borderSty.Render("/ search  ⏎ view  w wrap  t/T theme  q quit"))
 	}
 
 	return b.String()
@@ -1122,6 +1200,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searching = true
 			m.query = ""
 			return m, nil
+		case "w":
+			wrapLines = !wrapLines
+			return m, m.loadPreview()
 		case "t":
 			darkMode = !darkMode
 			applyTheme()
