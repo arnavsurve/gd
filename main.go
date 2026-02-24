@@ -898,6 +898,21 @@ func (m *model) updateFilter() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
+	// Ensure cursor lands on a file, not a directory
+	if m.cursor >= 0 && m.cursor < len(m.filtered) && m.allLines[m.filtered[m.cursor]].file == nil {
+		for i := m.cursor; i < len(m.filtered); i++ {
+			if m.allLines[m.filtered[i]].file != nil {
+				m.cursor = i
+				return
+			}
+		}
+		for i := m.cursor - 1; i >= 0; i-- {
+			if m.allLines[m.filtered[i]].file != nil {
+				m.cursor = i
+				return
+			}
+		}
+	}
 }
 
 func (m model) Init() tea.Cmd { return nil }
@@ -946,13 +961,19 @@ func (m *model) moveCursor(delta int) {
 	if n == 0 {
 		return
 	}
-	m.cursor += delta
-	if m.cursor < 0 {
-		m.cursor = 0
+	dir := 1
+	if delta < 0 {
+		dir = -1
 	}
-	if m.cursor >= n {
-		m.cursor = n - 1
+	next := m.cursor + dir
+	// Skip directory entries – only land on files
+	for next >= 0 && next < n && m.allLines[m.filtered[next]].file == nil {
+		next += dir
 	}
+	if next < 0 || next >= n {
+		return
+	}
+	m.cursor = next
 	visibleH := m.height - 2
 	if visibleH < 1 {
 		visibleH = 1
