@@ -575,25 +575,28 @@ func groupLines(lines []gitdiff.Line) []lineGroup {
 	return groups
 }
 
-func renderDiff(raw string, width int, filename string) string {
+func renderDiff(raw string, width int, filename string) (string, []int) {
 	if width <= 0 {
 		width = 80
 	}
 	files, _, err := gitdiff.Parse(strings.NewReader(raw))
 	if err != nil || len(files) == 0 {
-		return raw
+		return raw, nil
 	}
 	var b strings.Builder
+	var hunkLines []int
+	lineCount := 0
 	for i, f := range files {
 		if i > 0 {
 			b.WriteByte('\n')
+			lineCount++
 		}
-		renderFileDiff(&b, f, width, filename)
+		renderFileDiff(&b, f, width, filename, &hunkLines, &lineCount)
 	}
-	return b.String()
+	return b.String(), hunkLines
 }
 
-func renderFileDiff(b *strings.Builder, f *gitdiff.File, width int, filename string) {
+func renderFileDiff(b *strings.Builder, f *gitdiff.File, width int, filename string, hunkLines *[]int, lineCount *int) {
 	name := f.NewName
 	if name == "" {
 		name = f.OldName
@@ -609,25 +612,31 @@ func renderFileDiff(b *strings.Builder, f *gitdiff.File, width int, filename str
 	}
 	b.WriteString(fileHdrSty.Render(header))
 	b.WriteByte('\n')
+	*lineCount++
 
 	if f.IsBinary {
 		b.WriteString(ctxDimSty.Render("  Binary file"))
 		b.WriteByte('\n')
+		*lineCount++
 		return
 	}
 
 	hl := newHighlighter(name)
 
 	for _, frag := range f.TextFragments {
+		*hunkLines = append(*hunkLines, *lineCount)
 		if frag.Comment != "" {
 			b.WriteString(hunkHdrSty.Render(frag.Comment))
 			b.WriteByte('\n')
+			*lineCount++
 		}
+		before := b.Len()
 		if width >= sideBySideMinWidth {
 			renderSideBySide(b, frag, width, hl)
 		} else {
 			renderUnified(b, frag, width, hl)
 		}
+		*lineCount += strings.Count(b.String()[before:], "\n")
 	}
 }
 
@@ -809,8 +818,15 @@ func renderUnified(b *strings.Builder, frag *gitdiff.TextFragment, width int, hl
 
 // ==================== TUI Model ====================
 
-type diffLoadedMsg struct{ content string }
-type execFinishedMsg struct{ err error }
+type diffLoadedMsg struct {
+	content   string
+	hunkLines []int
+}
+
+type fullDiffLoadedMsg struct {
+	content   string
+	hunkLines []int
+}
 
 type model struct {
 	allLines []displayLine
@@ -826,11 +842,17 @@ type model struct {
 	themeNames   []string
 	themeCursor  int
 
-	viewport viewport.Model
-	width    int
-	height   int
-	treeW    int
-	ready    bool
+	viewport  viewport.Model
+	hunkLines []int
+	width     int
+	height    int
+	treeW     int
+	ready     bool
+
+	fullScreen     bool
+	fullViewport   viewport.Model
+	fullHunkLines  []int
+	fullFileName   string
 }
 
 func initialModel(files []fileStatus) model {
@@ -927,7 +949,7 @@ func (m model) selectedFile() *fileStatus {
 func (m model) loadPreview() tea.Cmd {
 	f := m.selectedFile()
 	if f == nil {
-		return func() tea.Msg { return diffLoadedMsg{content: ""} }
+		return func() tea.Msg { return diffLoadedMsg{} }
 	}
 	file := *f
 	vpW := m.width - m.treeW - 1
@@ -936,8 +958,8 @@ func (m model) loadPreview() tea.Cmd {
 	}
 	return func() tea.Msg {
 		raw := getDiffOutput(file, false)
-		rendered := renderDiff(raw, vpW, file.path)
-		return diffLoadedMsg{content: rendered}
+		rendered, hunkLines := renderDiff(raw, vpW, file.path)
+		return diffLoadedMsg{content: rendered, hunkLines: hunkLines}
 	}
 }
 
@@ -946,14 +968,13 @@ func (m model) openFullDiff() tea.Cmd {
 	if f == nil {
 		return nil
 	}
-	raw := getDiffOutput(*f, true)
-	rendered := renderDiff(raw, m.width, f.path)
-
-	c := exec.Command("less", "-RFX")
-	c.Stdin = strings.NewReader(rendered)
-	return tea.ExecProcess(c, func(err error) tea.Msg {
-		return execFinishedMsg{err: err}
-	})
+	file := *f
+	w := m.width
+	return func() tea.Msg {
+		raw := getDiffOutput(file, false)
+		rendered, hunkLines := renderDiff(raw, w, file.path)
+		return fullDiffLoadedMsg{content: rendered, hunkLines: hunkLines}
+	}
 }
 
 func (m *model) moveCursor(delta int) {
@@ -988,7 +1009,8 @@ func (m *model) moveCursor(delta int) {
 
 func (m model) renderThemePicker() string {
 	var b strings.Builder
-	b.WriteString(titleSty.Render("Syntax Theme"))
+	contentW := m.treeW - 1
+	b.WriteString(titleSty.Render(fitStr("Syntax Theme", contentW)))
 	b.WriteByte('\n')
 
 	visibleH := m.height - 2
@@ -1005,8 +1027,6 @@ func (m model) renderThemePicker() string {
 		end = len(m.themeNames)
 	}
 
-	contentW := m.treeW - 1
-
 	for i := scroll; i < end; i++ {
 		name := m.themeNames[i]
 		display := fitStr(name, contentW)
@@ -1018,7 +1038,9 @@ func (m model) renderThemePicker() string {
 		b.WriteByte('\n')
 	}
 
+	blank := strings.Repeat(" ", contentW)
 	for i := end - scroll; i < visibleH; i++ {
+		b.WriteString(blank)
 		b.WriteByte('\n')
 	}
 
@@ -1026,8 +1048,7 @@ func (m model) renderThemePicker() string {
 	if !darkMode {
 		modeLabel = "light"
 	}
-	b.WriteString(searchSty.Render("Theme ("+modeLabel+")") +
-		borderSty.Render("  ⏎ select  esc cancel"))
+	b.WriteString(fitStr("Theme ("+modeLabel+") ⏎ select esc cancel", contentW))
 
 	return b.String()
 }
@@ -1037,7 +1058,9 @@ func (m model) renderTree() string {
 		return m.renderThemePicker()
 	}
 	var b strings.Builder
-	b.WriteString(titleSty.Render("Changed Files"))
+	contentW := m.treeW - 1
+	title := fitStr("Changed Files", contentW)
+	b.WriteString(titleSty.Render(title))
 	b.WriteByte('\n')
 
 	visibleH := m.height - 2
@@ -1048,7 +1071,6 @@ func (m model) renderTree() string {
 	if end > len(m.filtered) {
 		end = len(m.filtered)
 	}
-	contentW := m.treeW - 1
 
 	for i := m.scroll; i < end; i++ {
 		lineIdx := m.filtered[i]
@@ -1080,20 +1102,21 @@ func (m model) renderTree() string {
 			rendered = indent + badge + " " + fileSty.Render(line.name)
 		}
 
-		if i == m.cursor {
-			padN := contentW - len([]rune(plain))
-			if padN < 0 {
-				padN = 0
-			}
-			rendered = cursorSty.Render(rendered + strings.Repeat(" ", padN))
-		}
-
-		// Truncate display to content width
+		// Truncate or pad to exactly contentW
 		runes := []rune(plain)
 		if len(runes) > contentW {
-			// Re-render truncated
+			truncPlain := string(runes[:contentW-1]) + "…"
 			if i == m.cursor {
-				rendered = cursorSty.Render(string([]rune(plain)[:contentW-1]) + "…")
+				rendered = cursorSty.Render(truncPlain)
+			} else {
+				rendered = truncPlain
+			}
+		} else {
+			padN := contentW - len(runes)
+			if i == m.cursor {
+				rendered = cursorSty.Render(rendered + strings.Repeat(" ", padN))
+			} else {
+				rendered = rendered + strings.Repeat(" ", padN)
 			}
 		}
 
@@ -1101,16 +1124,18 @@ func (m model) renderTree() string {
 		b.WriteByte('\n')
 	}
 
+	blank := strings.Repeat(" ", contentW)
 	for i := end - m.scroll; i < visibleH; i++ {
+		b.WriteString(blank)
 		b.WriteByte('\n')
 	}
 
 	if m.searching {
-		b.WriteString(searchSty.Render("/" + m.query + "█"))
+		b.WriteString(fitStr("/"+m.query+"█", contentW))
 	} else if m.query != "" {
-		b.WriteString(searchSty.Render("/" + m.query) + borderSty.Render("  esc clear"))
+		b.WriteString(fitStr("/"+m.query+"  esc clear", contentW))
 	} else {
-		b.WriteString(borderSty.Render("/ search  ⏎ view  w wrap  t/T theme  q quit"))
+		b.WriteString(fitStr("/ search ⏎ view w wrap q quit", contentW))
 	}
 
 	return b.String()
@@ -1119,6 +1144,36 @@ func (m model) renderTree() string {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.fullScreen {
+			switch msg.String() {
+			case "q", "esc":
+				m.fullScreen = false
+				return m, m.loadPreview()
+			case "n":
+				top := m.fullViewport.YOffset
+				for _, line := range m.fullHunkLines {
+					if line > top {
+						m.fullViewport.SetYOffset(line)
+						break
+					}
+				}
+				return m, nil
+			case "p":
+				top := m.fullViewport.YOffset
+				for i := len(m.fullHunkLines) - 1; i >= 0; i-- {
+					if m.fullHunkLines[i] < top {
+						m.fullViewport.SetYOffset(m.fullHunkLines[i])
+						break
+					}
+				}
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.fullViewport, cmd = m.fullViewport.Update(msg)
+				return m, cmd
+			}
+		}
+
 		if m.searching {
 			switch msg.String() {
 			case "enter":
@@ -1249,12 +1304,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.treeW = m.width * 30 / 100
-		if m.treeW < 30 {
-			m.treeW = 30
+		m.treeW = m.width / 5
+		if m.treeW < 16 {
+			m.treeW = 16
 		}
-		if m.treeW > 50 {
-			m.treeW = 50
+		if m.treeW > 40 {
+			m.treeW = 40
 		}
 		vpW := m.width - m.treeW - 1
 		if vpW < 20 {
@@ -1262,19 +1317,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.viewport.Width = vpW
 		m.viewport.Height = m.height
+		m.fullViewport.Width = m.width
+		m.fullViewport.Height = m.height - 1
 		if !m.ready {
 			m.ready = true
 			return m, m.loadPreview()
+		}
+		if m.fullScreen {
+			return m, m.openFullDiff()
 		}
 		return m, m.loadPreview()
 
 	case diffLoadedMsg:
 		m.viewport.SetContent(msg.content)
 		m.viewport.GotoTop()
+		m.hunkLines = msg.hunkLines
 		return m, nil
 
-	case execFinishedMsg:
-		return m, m.loadPreview()
+	case fullDiffLoadedMsg:
+		m.fullScreen = true
+		m.fullViewport = viewport.New(m.width, m.height-1)
+		m.fullViewport.SetContent(msg.content)
+		m.fullViewport.GotoTop()
+		m.fullHunkLines = msg.hunkLines
+		if f := m.selectedFile(); f != nil {
+			m.fullFileName = f.path
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -1284,6 +1353,13 @@ func (m model) View() string {
 	if !m.ready {
 		return "Loading..."
 	}
+
+	if m.fullScreen {
+		statusBar := borderSty.Render(m.fullFileName) +
+			borderSty.Render("  n/p hunk  ctrl+u/d page up/down  q back")
+		return m.fullViewport.View() + "\n" + statusBar
+	}
+
 	treeView := m.renderTree()
 
 	var border strings.Builder
