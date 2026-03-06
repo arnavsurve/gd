@@ -818,6 +818,12 @@ func renderUnified(b *strings.Builder, frag *gitdiff.TextFragment, width int, hl
 
 // ==================== TUI Model ====================
 
+type editorFinishedMsg struct{ err error }
+
+type filesRefreshedMsg struct {
+	files []fileStatus
+}
+
 type diffLoadedMsg struct {
 	content   string
 	hunkLines []int
@@ -1135,7 +1141,7 @@ func (m model) renderTree() string {
 	} else if m.query != "" {
 		b.WriteString(fitStr("/"+m.query+"  esc clear", contentW))
 	} else {
-		b.WriteString(fitStr("/ search ⏎ view w wrap q quit", contentW))
+		b.WriteString(fitStr("/ search ⏎ view e edit w wrap q quit", contentW))
 	}
 
 	return b.String()
@@ -1283,6 +1289,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			darkMode = !darkMode
 			applyTheme()
 			return m, m.loadPreview()
+		case "e":
+			f := m.selectedFile()
+			if f == nil {
+				return m, nil
+			}
+			editor := os.Getenv("EDITOR")
+			if editor == "" {
+				editor = "vim"
+			}
+			c := exec.Command(editor, f.path)
+			return m, tea.ExecProcess(c, func(err error) tea.Msg {
+				return editorFinishedMsg{err}
+			})
 		case "T":
 			m.themePicking = true
 			m.themeNames = nil
@@ -1333,6 +1352,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.GotoTop()
 		m.hunkLines = msg.hunkLines
 		return m, nil
+
+	case editorFinishedMsg:
+		return m, func() tea.Msg {
+			var files []fileStatus
+			if flagMain {
+				files, _ = getMainFiles()
+			} else {
+				files, _ = getChangedFiles()
+			}
+			return filesRefreshedMsg{files: files}
+		}
+
+	case filesRefreshedMsg:
+		selectedPath := ""
+		if f := m.selectedFile(); f != nil {
+			selectedPath = f.path
+		}
+		m.files = msg.files
+		tree := buildTree(m.files)
+		m.allLines = flattenTree(tree, 0)
+		m.updateFilter()
+		if selectedPath != "" {
+			for i, idx := range m.filtered {
+				if m.allLines[idx].file != nil && m.allLines[idx].file.path == selectedPath {
+					m.cursor = i
+					break
+				}
+			}
+		}
+		return m, m.loadPreview()
 
 	case fullDiffLoadedMsg:
 		m.fullScreen = true
