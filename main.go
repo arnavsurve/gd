@@ -123,7 +123,6 @@ var (
 var bgColors map[diffBg]string
 
 var darkMode bool
-var wrapLines bool
 
 func initTheme() {
 	darkMode = termenv.HasDarkBackground()
@@ -438,22 +437,8 @@ const (
 )
 
 func (h *highlighter) renderLine(text string, w int, bg diffBg) string {
-	if !wrapLines {
-		text = expandTabs(text)
-	}
-
-	// Truncate plain text first (before adding ANSI codes)
 	runes := []rune(text)
-	truncated := false
-	if !wrapLines && len(runes) > w-1 && w > 1 {
-		runes = runes[:w-1]
-		truncated = true
-		text = string(runes)
-	}
 	visW := len(runes)
-	if truncated {
-		visW++
-	}
 
 	bgColor := bgColors[bg]
 
@@ -488,14 +473,6 @@ func (h *highlighter) renderLine(text string, w int, bg diffBg) string {
 			s = s.Italic(true)
 		}
 		b.WriteString(s.Render(val))
-	}
-
-	if truncated {
-		s := lipgloss.NewStyle().Foreground(lipgloss.Color(pal.truncate))
-		if bgColor != "" {
-			s = s.Background(lipgloss.Color(bgColor))
-		}
-		b.WriteString(s.Render("…"))
 	}
 
 	// Pad remaining width with background
@@ -653,14 +630,8 @@ func renderSideBySide(b *strings.Builder, frag *gitdiff.TextFragment, width int,
 	newNum := int(frag.NewPosition)
 
 	emitRow := func(lNum int, lText string, lBg diffBg, rNum int, rText string, rBg diffBg) {
-		var lChunks, rChunks []string
-		if wrapLines {
-			lChunks = wrapText(lText, colW)
-			rChunks = wrapText(rText, colW)
-		} else {
-			lChunks = []string{lText}
-			rChunks = []string{rText}
-		}
+		lChunks := wrapText(lText, colW)
+		rChunks := wrapText(rText, colW)
 
 		maxRows := len(lChunks)
 		if len(rChunks) > maxRows {
@@ -763,12 +734,7 @@ func renderUnified(b *strings.Builder, frag *gitdiff.TextFragment, width int, hl
 	for _, line := range frag.Lines {
 		text := trimLine(line.Line)
 
-		var chunks []string
-		if wrapLines {
-			chunks = wrapText(text, textW)
-		} else {
-			chunks = []string{text}
-		}
+		chunks := wrapText(text, textW)
 
 		for ci, chunk := range chunks {
 			switch line.Op {
@@ -1141,7 +1107,7 @@ func (m model) renderTree() string {
 	} else if m.query != "" {
 		b.WriteString(fitStr("/"+m.query+"  esc clear", contentW))
 	} else {
-		b.WriteString(fitStr("/ search ⏎ view e edit w wrap q quit", contentW))
+		b.WriteString(fitStr("/ search ⏎ view e edit q quit", contentW))
 	}
 
 	return b.String()
@@ -1282,9 +1248,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searching = true
 			m.query = ""
 			return m, nil
-		case "w":
-			wrapLines = !wrapLines
-			return m, m.loadPreview()
+
 		case "t":
 			darkMode = !darkMode
 			applyTheme()
