@@ -179,8 +179,9 @@ func isStyleDark(name string) bool {
 // ==================== Config ====================
 
 type config struct {
-	DarkTheme  string `json:"darkTheme"`
-	LightTheme string `json:"lightTheme"`
+	DarkTheme    string  `json:"darkTheme"`
+	LightTheme   string  `json:"lightTheme"`
+	SidebarRatio float64 `json:"sidebarRatio,omitempty"`
 }
 
 var cfg config
@@ -213,6 +214,9 @@ func loadConfig() {
 	if loaded.LightTheme != "" {
 		cfg.LightTheme = loaded.LightTheme
 		lightPalette.chromaStyle = loaded.LightTheme
+	}
+	if loaded.SidebarRatio > 0 {
+		cfg.SidebarRatio = loaded.SidebarRatio
 	}
 }
 
@@ -821,6 +825,8 @@ type model struct {
 	treeW     int
 	ready     bool
 
+	dragging       bool
+
 	fullScreen     bool
 	fullViewport   viewport.Model
 	fullHunkLines  []int
@@ -947,6 +953,35 @@ func (m model) openFullDiff() tea.Cmd {
 		rendered, hunkLines := renderDiff(raw, w, file.path)
 		return fullDiffLoadedMsg{content: rendered, hunkLines: hunkLines}
 	}
+}
+
+func clampTreeW(w int) int {
+	if w < 16 {
+		w = 16
+	}
+	if w > 60 {
+		w = 60
+	}
+	return w
+}
+
+func (m *model) resizeLayout() {
+	if m.width == 0 {
+		return
+	}
+	if cfg.SidebarRatio > 0 {
+		m.treeW = clampTreeW(int(cfg.SidebarRatio * float64(m.width)))
+	} else {
+		m.treeW = clampTreeW(m.width / 5)
+	}
+	vpW := m.width - m.treeW - 1
+	if vpW < 20 {
+		vpW = 20
+	}
+	m.viewport.Width = vpW
+	m.viewport.Height = m.height
+	m.fullViewport.Width = m.width
+	m.fullViewport.Height = m.height - 1
 }
 
 func (m *model) moveCursor(delta int) {
@@ -1290,6 +1325,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fullViewport, cmd = m.fullViewport.Update(msg)
 			return m, cmd
 		}
+
+		if m.dragging {
+			if msg.Action == tea.MouseActionMotion {
+				newW := clampTreeW(msg.X + 1)
+				if newW != m.treeW && newW < m.width-20 {
+					m.treeW = newW
+					cfg.SidebarRatio = float64(m.treeW) / float64(m.width)
+					vpW := m.width - m.treeW - 1
+					if vpW < 20 {
+						vpW = 20
+					}
+					m.viewport.Width = vpW
+					return m, m.loadPreview()
+				}
+				return m, nil
+			}
+			if msg.Action == tea.MouseActionRelease {
+				m.dragging = false
+				saveConfig()
+				return m, nil
+			}
+			return m, nil
+		}
+
+		onBorder := msg.X >= m.treeW-1 && msg.X <= m.treeW+1
+		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress && onBorder {
+			m.dragging = true
+			return m, nil
+		}
+
 		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
 			if msg.X < m.treeW {
 				delta := 3
@@ -1331,21 +1396,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.treeW = m.width / 5
-		if m.treeW < 16 {
-			m.treeW = 16
-		}
-		if m.treeW > 40 {
-			m.treeW = 40
-		}
-		vpW := m.width - m.treeW - 1
-		if vpW < 20 {
-			vpW = 20
-		}
-		m.viewport.Width = vpW
-		m.viewport.Height = m.height
-		m.fullViewport.Width = m.width
-		m.fullViewport.Height = m.height - 1
+		m.resizeLayout()
 		if !m.ready {
 			m.ready = true
 			return m, m.loadPreview()
