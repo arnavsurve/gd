@@ -1313,6 +1313,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport, cmd = m.viewport.Update(msg)
 			return m, cmd
 		}
+		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress && msg.X < m.treeW {
+			clicked := m.scroll + (msg.Y - 1)
+			if clicked >= 0 && clicked < len(m.filtered) {
+				if m.allLines[m.filtered[clicked]].file != nil {
+					prev := m.cursor
+					m.cursor = clicked
+					if m.cursor != prev {
+						return m, m.loadPreview()
+					}
+				}
+			}
+			return m, nil
+		}
 		return m, nil
 
 	case tea.WindowSizeMsg:
