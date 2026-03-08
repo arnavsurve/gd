@@ -1284,6 +1284,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+	case tea.MouseMsg:
+		if m.fullScreen {
+			var cmd tea.Cmd
+			m.fullViewport, cmd = m.fullViewport.Update(msg)
+			return m, cmd
+		}
+		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
+			if msg.X < m.treeW {
+				delta := 3
+				if msg.Button == tea.MouseButtonWheelUp {
+					delta = -delta
+				}
+				m.scroll += delta
+				maxScroll := len(m.filtered) - (m.height - 2)
+				if maxScroll < 0 {
+					maxScroll = 0
+				}
+				if m.scroll > maxScroll {
+					m.scroll = maxScroll
+				}
+				if m.scroll < 0 {
+					m.scroll = 0
+				}
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -1410,7 +1441,7 @@ func main() {
 		return
 	}
 
-	p := tea.NewProgram(initialModel(files), tea.WithAltScreen())
+	p := tea.NewProgram(initialModel(files), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
