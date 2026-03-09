@@ -35,6 +35,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				return m, nil
+			case "e":
+				f := m.selectedFile()
+				if f == nil {
+					return m, nil
+				}
+				editor := os.Getenv("EDITOR")
+				if editor == "" {
+					editor = "vim"
+				}
+				c := exec.Command(editor, f.path)
+				return m, tea.ExecProcess(c, func(err error) tea.Msg {
+					return editorFinishedMsg{err}
+				})
 			default:
 				var cmd tea.Cmd
 				m.fullViewport, cmd = m.fullViewport.Update(msg)
