@@ -93,8 +93,8 @@ func filesEqual(a, b []fileStatus) bool {
 	return true
 }
 
-func getDiffOutput(f fileStatus, fullFile bool) string {
-	ctx := ""
+func getDiffOutput(f fileStatus, fullFile bool, contextLines int) string {
+	ctx := fmt.Sprintf("-U%d ", contextLines)
 	if fullFile {
 		ctx = "-U99999 "
 	}

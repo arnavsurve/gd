@@ -14,6 +14,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.fullScreen {
 			switch msg.String() {
+			case "+", "=":
+				m.contextLines += 4
+				return m, m.openFullDiff()
+			case "-":
+				m.contextLines -= 4
+				if m.contextLines < 0 {
+					m.contextLines = 0
+				}
+				return m, m.openFullDiff()
 			case "q", "esc":
 				m.fullScreen = false
 				return m, m.loadPreview()
@@ -128,6 +137,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
+		case "+", "=":
+			m.contextLines += 4
+			return m, m.loadPreview()
+		case "-":
+			m.contextLines -= 4
+			if m.contextLines < 0 {
+				m.contextLines = 0
+			}
+			return m, m.loadPreview()
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "esc":

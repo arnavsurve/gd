@@ -50,9 +50,10 @@ type model struct {
 	treeW     int
 	ready     bool
 
-	dragging bool
+	dragging     bool
+	contextLines int
 
-	fullScreen    bool
+	fullScreen   bool
 	fullViewport  viewport.Model
 	fullHunkLines []int
 	fullFileName  string
@@ -63,9 +64,10 @@ func initialModel(files []fileStatus) model {
 	lines := flattenTree(tree, 0)
 
 	m := model{
-		allLines: lines,
-		files:    files,
-		viewport: viewport.New(0, 0),
+		allLines:     lines,
+		files:        files,
+		viewport:     viewport.New(0, 0),
+		contextLines: 3,
 	}
 	m.updateFilter()
 
@@ -176,8 +178,9 @@ func (m model) loadPreview() tea.Cmd {
 	if vpW < 40 {
 		vpW = 40
 	}
+	ctx := m.contextLines
 	return func() tea.Msg {
-		raw := getDiffOutput(file, false)
+		raw := getDiffOutput(file, false, ctx)
 		rendered, hunkLines := renderDiff(raw, vpW, file.path)
 		return diffLoadedMsg{content: rendered, hunkLines: hunkLines}
 	}
@@ -190,8 +193,9 @@ func (m model) openFullDiff() tea.Cmd {
 	}
 	file := *f
 	w := m.width
+	ctx := m.contextLines
 	return func() tea.Msg {
-		raw := getDiffOutput(file, false)
+		raw := getDiffOutput(file, false, ctx)
 		rendered, hunkLines := renderDiff(raw, w, file.path)
 		return fullDiffLoadedMsg{content: rendered, hunkLines: hunkLines}
 	}
