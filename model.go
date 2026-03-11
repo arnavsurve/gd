@@ -233,6 +233,21 @@ func (m *model) resizeLayout() {
 	m.fullViewport.Height = m.height - 1
 }
 
+func (m *model) moveCursorN(n int) {
+	dir := 1
+	if n < 0 {
+		dir = -1
+		n = -n
+	}
+	for range n {
+		prev := m.cursor
+		m.moveCursor(dir)
+		if m.cursor == prev {
+			break
+		}
+	}
+}
+
 func (m *model) moveCursor(delta int) {
 	n := len(m.filtered)
 	if n == 0 {

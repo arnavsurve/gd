@@ -172,6 +172,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.loadPreview()
 			}
 			return m, nil
+		case "ctrl+d":
+			prev := m.cursor
+			half := (m.height - 2) / 2
+			if half < 1 {
+				half = 1
+			}
+			m.moveCursorN(half)
+			if m.cursor != prev {
+				return m, m.loadPreview()
+			}
+			return m, nil
+		case "ctrl+u":
+			prev := m.cursor
+			half := (m.height - 2) / 2
+			if half < 1 {
+				half = 1
+			}
+			m.moveCursorN(-half)
+			if m.cursor != prev {
+				return m, m.loadPreview()
+			}
+			return m, nil
 		case "f":
 			m.fullFile = !m.fullFile
 			return m, m.loadPreview()
