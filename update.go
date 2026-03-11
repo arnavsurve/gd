@@ -23,6 +23,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.contextLines = 0
 				}
 				return m, m.openFullDiff()
+			case "f":
+				m.fullFile = !m.fullFile
+				return m, m.openFullDiff()
 			case "q", "esc":
 				m.fullScreen = false
 				return m, m.loadPreview()
@@ -169,6 +172,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.loadPreview()
 			}
 			return m, nil
+		case "f":
+			m.fullFile = !m.fullFile
+			return m, m.loadPreview()
 		case "enter":
 			return m, m.openFullDiff()
 		case "/":

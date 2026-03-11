@@ -52,6 +52,7 @@ type model struct {
 
 	dragging     bool
 	contextLines int
+	fullFile     bool
 
 	fullScreen   bool
 	fullViewport  viewport.Model
@@ -179,8 +180,9 @@ func (m model) loadPreview() tea.Cmd {
 		vpW = 40
 	}
 	ctx := m.contextLines
+	full := m.fullFile
 	return func() tea.Msg {
-		raw := getDiffOutput(file, false, ctx)
+		raw := getDiffOutput(file, full, ctx)
 		rendered, hunkLines := renderDiff(raw, vpW, file.path)
 		return diffLoadedMsg{content: rendered, hunkLines: hunkLines}
 	}
@@ -194,8 +196,9 @@ func (m model) openFullDiff() tea.Cmd {
 	file := *f
 	w := m.width
 	ctx := m.contextLines
+	full := m.fullFile
 	return func() tea.Msg {
-		raw := getDiffOutput(file, false, ctx)
+		raw := getDiffOutput(file, full, ctx)
 		rendered, hunkLines := renderDiff(raw, w, file.path)
 		return fullDiffLoadedMsg{content: rendered, hunkLines: hunkLines}
 	}
