@@ -1,34 +1,29 @@
 # gd
 
-A terminal git diff viewer. Browse changed files in a tree, see diffs with syntax highlighting, and open full-file views in less.
+A terminal git diff viewer with tree-based file browsing.
 
 ## Install
+
+### From release binaries
+
+Download the latest binary from [Releases](https://github.com/arnavsurve/gd/releases) and place it on your PATH.
+
+### From source
 
 Requires Go 1.21+.
 
 ```
 git clone https://github.com/arnavsurve/gd.git
 cd gd
-go build -o gd .
+./install.sh
 ```
 
-Then either move the binary somewhere on your PATH:
-
-```
-mv gd /usr/local/bin/
-```
-
-Or alias it in your shell config:
-
-```
-alias gd="$HOME/dev/gd/gd"
-```
+This builds the binary and installs it to `~/.local/bin` (override with `INSTALL_DIR`).
 
 If you have the oh-my-zsh git plugin, you'll need to unalias `gd` first:
 
 ```
 unalias gd 2>/dev/null
-alias gd="$HOME/dev/gd/gd"
 ```
 
 ## Usage
@@ -40,24 +35,49 @@ gd          # browse staged, unstaged, and untracked files
 gd --main   # browse files changed vs main branch
 ```
 
-### Controls
+### Navigation
 
 | Key | Action |
 |-----|--------|
-| `j` / `k` or arrow keys | navigate file tree |
-| `enter` | open full-file diff in less |
-| `q` in less | back to file browser |
-| `/` | search files |
-| `w` | toggle line wrap |
-| `t` | toggle dark / light mode |
-| `T` | open syntax theme picker |
+| `j` / `k` or `↑` / `↓` | navigate file tree |
+| `enter` | open fullscreen diff view |
+| `/` | search / filter files |
 | `esc` | clear search, or quit |
 | `q` | quit |
 
+### Diff Controls
+
+| Key | Action |
+|-----|--------|
+| `f` | toggle full file diff vs hunk context |
+| `+` / `-` | expand / shrink context around hunks (±4 lines) |
+| `e` | open file in `$EDITOR` |
+
+### Fullscreen Diff
+
+| Key | Action |
+|-----|--------|
+| `n` / `p` | jump to next / previous hunk |
+| `f` | toggle full file diff vs hunk context |
+| `+` / `-` | expand / shrink context around hunks (±4 lines) |
+| `e` | open file in `$EDITOR` |
+| `q` / `esc` | back to split view |
+
+### Sidebar
+
+The sidebar is resizable — drag the border between the file tree and diff pane to adjust. The ratio persists across sessions.
+
+Mouse scroll works in both the file tree and the diff pane. Click a file in the tree to select it.
+
 ### Themes
 
-`gd` detects your system theme at startup. Press `t` to toggle between dark and light mode manually (useful in tmux where system theme changes aren't always detected).
+| Key | Action |
+|-----|--------|
+| `t` | toggle dark / light mode |
+| `T` | open syntax theme picker |
 
-Press `T` to open the theme picker. It shows only dark themes in dark mode and light themes in light mode, with a live preview as you scroll. Press `enter` to confirm or `esc` to cancel.
+`gd` detects your system theme at startup. Press `t` to toggle manually (useful in tmux where system theme detection can be unreliable).
+
+The theme picker shows only dark themes in dark mode and light themes in light mode, with a live preview as you scroll. Press `enter` to confirm or `esc` to cancel.
 
 Theme selections are saved per mode to `~/.config/gd/config.json` (or `~/Library/Application Support/gd/config.json` on macOS) and persist across sessions.
