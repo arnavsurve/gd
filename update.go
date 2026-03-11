@@ -285,18 +285,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hunkLines = msg.hunkLines
 		return m, nil
 
+	case tickMsg:
+		return m, tea.Batch(refreshFiles, tickCmd())
+
 	case editorFinishedMsg:
-		return m, func() tea.Msg {
-			var files []fileStatus
-			if flagMain {
-				files, _ = getMainFiles()
-			} else {
-				files, _ = getChangedFiles()
-			}
-			return filesRefreshedMsg{files: files}
-		}
+		return m, refreshFiles
 
 	case filesRefreshedMsg:
+		if filesEqual(m.files, msg.files) {
+			return m, nil
+		}
 		selectedPath := ""
 		if f := m.selectedFile(); f != nil {
 			selectedPath = f.path

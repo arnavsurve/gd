@@ -81,6 +81,18 @@ func getMainFiles() ([]fileStatus, error) {
 	return files, nil
 }
 
+func filesEqual(a, b []fileStatus) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func getDiffOutput(f fileStatus, fullFile bool) string {
 	ctx := ""
 	if fullFile {

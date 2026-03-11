@@ -3,12 +3,17 @@ package main
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+const refreshInterval = 2 * time.Second
+
 type editorFinishedMsg struct{ err error }
+
+type tickMsg time.Time
 
 type filesRefreshedMsg struct {
 	files []fileStatus
@@ -134,7 +139,25 @@ func (m *model) updateFilter() {
 	}
 }
 
-func (m model) Init() tea.Cmd { return nil }
+func (m model) Init() tea.Cmd {
+	return tickCmd()
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(refreshInterval, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
+func refreshFiles() tea.Msg {
+	var files []fileStatus
+	if flagMain {
+		files, _ = getMainFiles()
+	} else {
+		files, _ = getChangedFiles()
+	}
+	return filesRefreshedMsg{files: files}
+}
 
 func (m model) selectedFile() *fileStatus {
 	if m.cursor >= 0 && m.cursor < len(m.filtered) {
