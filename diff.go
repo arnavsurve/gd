@@ -91,6 +91,21 @@ func renderDiff(raw string, width int, filename string) (string, []int) {
 	return b.String(), hunkLines
 }
 
+func isNewFile(f *gitdiff.File) bool {
+	return f.IsNew || f.OldName == "/dev/null" || f.OldName == ""
+}
+
+func isPurelyAdditive(f *gitdiff.File) bool {
+	for _, frag := range f.TextFragments {
+		for _, line := range frag.Lines {
+			if line.Op == gitdiff.OpDelete {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func renderFileDiff(b *strings.Builder, f *gitdiff.File, width int, filename string, hunkLines *[]int, lineCount *int) {
 	name := f.NewName
 	if name == "" {
@@ -116,7 +131,24 @@ func renderFileDiff(b *strings.Builder, f *gitdiff.File, width int, filename str
 		return
 	}
 
+	newFile := isNewFile(f)
+	addOnly := !newFile && isPurelyAdditive(f)
 	hl := newHighlighter(name)
+
+	if newFile || addOnly {
+		for _, frag := range f.TextFragments {
+			*hunkLines = append(*hunkLines, *lineCount)
+			if !newFile && frag.Comment != "" {
+				b.WriteString(hunkHdrSty.Render(frag.Comment))
+				b.WriteByte('\n')
+				*lineCount++
+			}
+			before := b.Len()
+			renderSingleColumn(b, frag, width, hl, newFile)
+			*lineCount += strings.Count(b.String()[before:], "\n")
+		}
+		return
+	}
 
 	for _, frag := range f.TextFragments {
 		*hunkLines = append(*hunkLines, *lineCount)
@@ -232,6 +264,39 @@ func renderSideBySide(b *strings.Builder, frag *gitdiff.TextFragment, width int,
 				newNum++
 			}
 		}
+	}
+}
+
+func renderSingleColumn(b *strings.Builder, frag *gitdiff.TextFragment, width int, hl *highlighter, newFile bool) {
+	const numW = 4
+	textW := width - numW - 2
+	if textW < 10 {
+		textW = 10
+	}
+
+	lineNum := int(frag.NewPosition)
+
+	for _, line := range frag.Lines {
+		text := trimLine(line.Line)
+		chunks := wrapText(text, textW)
+
+		bg := bgNone
+		if !newFile && line.Op == gitdiff.OpAdd {
+			bg = bgAdd
+		}
+
+		for ci, chunk := range chunks {
+			if ci == 0 {
+				b.WriteString(lineNumSty.Render(fmt.Sprintf("%*d", numW, lineNum)))
+				b.WriteString("  ")
+			} else {
+				b.WriteString(strings.Repeat(" ", numW+2))
+			}
+			b.WriteString(hl.renderLine(chunk, textW, bg))
+			b.WriteByte('\n')
+		}
+
+		lineNum++
 	}
 }
 
