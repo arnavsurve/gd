@@ -231,7 +231,7 @@ func (m *model) resizeLayout() {
 		vpW = 20
 	}
 	m.viewport.Width = vpW
-	m.viewport.Height = m.height
+	m.viewport.Height = m.height - 1
 	m.fullViewport.Width = m.width
 	m.fullViewport.Height = m.height - 1
 }

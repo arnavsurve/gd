@@ -43,12 +43,6 @@ func (m model) renderThemePicker() string {
 		b.WriteByte('\n')
 	}
 
-	modeLabel := "dark"
-	if !darkMode {
-		modeLabel = "light"
-	}
-	b.WriteString(fitStr("Theme ("+modeLabel+") ⏎ select esc cancel", contentW))
-
 	return b.String()
 }
 
@@ -128,15 +122,27 @@ func (m model) renderTree() string {
 		b.WriteByte('\n')
 	}
 
-	if m.searching {
-		b.WriteString(fitStr("/"+m.query+"█", contentW))
-	} else if m.query != "" {
-		b.WriteString(fitStr("/"+m.query+"  esc clear", contentW))
-	} else {
-		b.WriteString(fitStr("/ search ⏎ view e edit q quit", contentW))
-	}
-
 	return b.String()
+}
+
+func (m model) renderStatusBar() string {
+	var text string
+	if m.fullScreen {
+		text = m.fullFileName + "  n/p hunk  f full  +/- context  e edit  t theme  T pick  q back"
+	} else if m.themePicking {
+		modeLabel := "dark"
+		if !darkMode {
+			modeLabel = "light"
+		}
+		text = "Theme (" + modeLabel + ")  ⏎ select  esc cancel"
+	} else if m.searching {
+		text = "/" + m.query + "█"
+	} else if m.query != "" {
+		text = "/" + m.query + "  esc clear"
+	} else {
+		text = "/ search  ⏎ view  e edit  f full  +/- context  t theme  T pick  q quit"
+	}
+	return borderSty.Render(fitStr(text, m.width))
 }
 
 func (m model) View() string {
@@ -144,22 +150,24 @@ func (m model) View() string {
 		return "Loading..."
 	}
 
+	statusBar := m.renderStatusBar()
+
 	if m.fullScreen {
-		statusBar := borderSty.Render(m.fullFileName) +
-			borderSty.Render("  n/p hunk  ctrl+u/d page up/down  q back")
 		return m.fullViewport.View() + "\n" + statusBar
 	}
 
 	treeView := m.renderTree()
 
+	contentH := m.height - 1
 	var border strings.Builder
-	for i := 0; i < m.height; i++ {
+	for i := 0; i < contentH; i++ {
 		border.WriteString(borderSty.Render("│"))
-		if i < m.height-1 {
+		if i < contentH-1 {
 			border.WriteByte('\n')
 		}
 	}
 
 	diffView := m.viewport.View()
-	return lipgloss.JoinHorizontal(lipgloss.Top, treeView, border.String(), diffView)
+	main := lipgloss.JoinHorizontal(lipgloss.Top, treeView, border.String(), diffView)
+	return main + "\n" + statusBar
 }
