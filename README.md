@@ -68,6 +68,37 @@ The sidebar is resizable — drag the border between the file tree and diff pane
 
 Mouse scroll works in both the file tree and the diff pane. Click a file in the tree to select it.
 
+### Pager Mode
+
+`gd` can be used as a diff pager by piping diff output to it. It reads from stdin, renders with syntax highlighting and side-by-side formatting, and prints to stdout.
+
+```
+git diff | gd
+git show HEAD | gd
+git log -p | gd
+```
+
+#### As git's default pager
+
+```
+git config --global pager.diff gd
+git config --global pager.show gd
+git config --global pager.log gd
+```
+
+#### With lazygit
+
+```yaml
+# ~/.config/lazygit/config.yml (Linux)
+# ~/Library/Application Support/lazygit/config.yml (macOS)
+git:
+  paging:
+    colorArg: never
+    pager: gd
+```
+
+Setting `colorArg: never` tells git not to add its own colors so `gd` can handle all the rendering.
+
 ### Themes
 
 | Key | Action |
