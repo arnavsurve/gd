@@ -3,11 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"golang.org/x/term"
 )
 
 var flagMain bool
@@ -38,7 +40,42 @@ func parseCommitArg(arg string) (from, to string, err error) {
 	return fmt.Sprintf("HEAD~%d", n), "HEAD", nil
 }
 
+func stdinIsPipe() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice == 0
+}
+
+func runPager() {
+	loadConfig()
+	initTheme()
+
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error reading stdin: %v\n", err)
+		os.Exit(1)
+	}
+	if len(data) == 0 {
+		return
+	}
+
+	width := 80
+	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
+		width = w
+	}
+
+	rendered, _ := renderDiff(string(data), width, "")
+	fmt.Print(rendered)
+}
+
 func main() {
+	if stdinIsPipe() {
+		runPager()
+		return
+	}
+
 	flag.BoolVar(&flagMain, "main", false, "diff against main branch")
 	flag.Parse()
 
