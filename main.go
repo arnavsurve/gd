@@ -10,6 +10,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/term"
+
+	_ "github.com/arnavsurve/gd/themes"
 )
 
 var flagMain bool
