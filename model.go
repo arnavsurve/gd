@@ -143,6 +143,9 @@ func (m *model) updateFilter() {
 }
 
 func (m model) Init() tea.Cmd {
+	if commitFrom != "" {
+		return nil
+	}
 	return tickCmd()
 }
 

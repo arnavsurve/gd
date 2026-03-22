@@ -332,6 +332,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
+		if commitFrom != "" {
+			return m, nil
+		}
 		return m, tea.Batch(refreshFiles, tickCmd())
 
 	case editorFinishedMsg:
