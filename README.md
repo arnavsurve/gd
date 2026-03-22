@@ -13,14 +13,10 @@ Download the latest binary from [Releases](https://github.com/arnavsurve/gd/rele
 Requires Go 1.21+.
 
 ```
-git clone https://github.com/arnavsurve/gd.git
-cd gd
-./install.sh
+go install github.com/arnavsurve/gd@latest
 ```
 
-This builds the binary and installs it to `~/.local/bin` (override with `INSTALL_DIR`).
-
-If you have the oh-my-zsh git plugin, you'll need to unalias `gd` first:
+If you have the oh-my-zsh git plugin, you'll need to unalias `gd` in your `.zshrc`:
 
 ```
 unalias gd 2>/dev/null

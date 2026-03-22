@@ -28,11 +28,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-	if len(files) == 0 {
-		fmt.Println("No changes.")
-		return
-	}
-
 	p := tea.NewProgram(initialModel(files), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
