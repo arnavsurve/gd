@@ -54,13 +54,17 @@ type model struct {
 	contextLines int
 	fullFile     bool
 
-	fullScreen   bool
+	fullScreen    bool
 	fullViewport  viewport.Model
 	fullHunkLines []int
 	fullFileName  string
+
+	semantic   bool
+	semData    *semCache
+	semLoading bool
 }
 
-func initialModel(files []fileStatus) model {
+func initialModel(files []fileStatus, semantic bool) model {
 	tree := buildTree(files)
 	lines := flattenTree(tree, 0)
 
@@ -69,6 +73,7 @@ func initialModel(files []fileStatus) model {
 		files:        files,
 		viewport:     viewport.New(0, 0),
 		contextLines: 3,
+		semantic:     semantic,
 	}
 	m.updateFilter()
 
@@ -143,10 +148,18 @@ func (m *model) updateFilter() {
 }
 
 func (m model) Init() tea.Cmd {
-	if commitFrom != "" {
+	var cmds []tea.Cmd
+	if commitFrom == "" {
+		cmds = append(cmds, tickCmd())
+	}
+	if m.semantic && semAvailable() {
+		m.semLoading = true
+		cmds = append(cmds, loadSemData)
+	}
+	if len(cmds) == 0 {
 		return nil
 	}
-	return tickCmd()
+	return tea.Batch(cmds...)
 }
 
 func tickCmd() tea.Cmd {
@@ -184,7 +197,17 @@ func (m model) loadPreview() tea.Cmd {
 	}
 	ctx := m.contextLines
 	full := m.fullFile
+	sem := m.semantic
+	cache := m.semData
+
 	return func() tea.Msg {
+		if sem && cache != nil {
+			changes := cache.changesForFile(file.path, file)
+			if len(changes) > 0 {
+				rendered, hunkLines := renderSemanticDiff(cache, file, vpW)
+				return diffLoadedMsg{content: rendered, hunkLines: hunkLines}
+			}
+		}
 		raw := getDiffOutput(file, full, ctx)
 		rendered, hunkLines := renderDiff(raw, vpW, file.path)
 		return diffLoadedMsg{content: rendered, hunkLines: hunkLines}
@@ -200,7 +223,17 @@ func (m model) openFullDiff() tea.Cmd {
 	w := m.width
 	ctx := m.contextLines
 	full := m.fullFile
+	sem := m.semantic
+	cache := m.semData
+
 	return func() tea.Msg {
+		if sem && cache != nil {
+			changes := cache.changesForFile(file.path, file)
+			if len(changes) > 0 {
+				rendered, hunkLines := renderSemanticDiff(cache, file, w)
+				return fullDiffLoadedMsg{content: rendered, hunkLines: hunkLines}
+			}
+		}
 		raw := getDiffOutput(file, full, ctx)
 		rendered, hunkLines := renderDiff(raw, w, file.path)
 		return fullDiffLoadedMsg{content: rendered, hunkLines: hunkLines}

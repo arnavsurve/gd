@@ -140,7 +140,10 @@ func (m model) renderStatusBar() string {
 	} else if m.query != "" {
 		text = "/" + m.query + "  esc clear"
 	} else {
-		text = "/ search  ⏎ view  e edit  f full  +/- context  t theme  T pick  q quit"
+		text = "/ search  ⏎ view  e edit  f full  +/- context  s sem  t theme  T pick  q quit"
+	}
+	if m.semantic {
+		text = "semantic  " + text
 	}
 	return borderSty.Render(fitStr(text, m.width))
 }

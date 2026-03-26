@@ -15,6 +15,8 @@ import (
 )
 
 var flagMain bool
+var flagSemantic bool
+var flagNoSemantic bool
 
 var commitFrom string
 var commitTo string
@@ -79,6 +81,8 @@ func main() {
 	}
 
 	flag.BoolVar(&flagMain, "main", false, "diff against main branch")
+	flag.BoolVar(&flagSemantic, "semantic", false, "enable semantic diff mode (requires sem CLI)")
+	flag.BoolVar(&flagNoSemantic, "no-semantic", false, "disable semantic diff mode")
 	flag.Parse()
 
 	if args := flag.Args(); len(args) > 0 && strings.HasPrefix(args[0], "@") {
@@ -93,6 +97,21 @@ func main() {
 	loadConfig()
 	initTheme()
 
+	semantic := false
+	if cfg.Semantic != nil {
+		semantic = *cfg.Semantic
+	}
+	if flagSemantic {
+		semantic = true
+	}
+	if flagNoSemantic {
+		semantic = false
+	}
+	if semantic && !semAvailable() {
+		fmt.Fprintln(os.Stderr, "semantic mode requires the sem CLI: brew install ataraxy-labs/tap/sem-diff")
+		os.Exit(1)
+	}
+
 	var files []fileStatus
 	var err error
 	if commitFrom != "" {
@@ -106,7 +125,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-	p := tea.NewProgram(initialModel(files), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(initialModel(files, semantic), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

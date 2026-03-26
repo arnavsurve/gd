@@ -35,6 +35,7 @@ const (
 	bgNone diffBg = iota
 	bgAdd
 	bgDel
+	bgMov
 )
 
 func (h *highlighter) renderLine(text string, w int, bg diffBg) string {

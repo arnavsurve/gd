@@ -11,6 +11,7 @@ type config struct {
 	DarkTheme    string  `json:"darkTheme"`
 	LightTheme   string  `json:"lightTheme"`
 	SidebarRatio float64 `json:"sidebarRatio,omitempty"`
+	Semantic     *bool   `json:"semantic,omitempty"`
 }
 
 var cfg config

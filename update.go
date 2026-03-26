@@ -9,6 +9,23 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+type semLoadedMsg struct {
+	data *semCache
+	err  error
+}
+
+func loadSemData() tea.Msg {
+	unstaged, err := runSemDiff()
+	if err != nil {
+		return semLoadedMsg{err: err}
+	}
+	var staged *semOutput
+	if commitFrom == "" && !flagMain {
+		staged, _ = runSemDiffStaged()
+	}
+	return semLoadedMsg{data: &semCache{unstaged: unstaged, staged: staged}}
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -45,6 +62,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.fullViewport.SetYOffset(m.fullHunkLines[i])
 						break
 					}
+				}
+				return m, nil
+			case "s":
+				if semAvailable() {
+					m.semantic = !m.semantic
+					cfg.Semantic = &m.semantic
+					saveConfig()
+					if m.semantic && m.semData == nil && !m.semLoading {
+						m.semLoading = true
+						return m, loadSemData
+					}
+					return m, m.openFullDiff()
 				}
 				return m, nil
 			case "e":
@@ -220,6 +249,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.ExecProcess(c, func(err error) tea.Msg {
 				return editorFinishedMsg{err}
 			})
+		case "s":
+			if semAvailable() {
+				m.semantic = !m.semantic
+				cfg.Semantic = &m.semantic
+				saveConfig()
+				if m.semantic && m.semData == nil && !m.semLoading {
+					m.semLoading = true
+					return m, loadSemData
+				}
+				return m, m.loadPreview()
+			}
+			return m, nil
 		case "T":
 			m.themePicking = true
 			m.themeNames = nil
@@ -344,6 +385,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if filesEqual(m.files, msg.files) {
 			return m, nil
 		}
+		if m.semantic {
+			m.semData = nil
+		}
 		selectedPath := ""
 		if f := m.selectedFile(); f != nil {
 			selectedPath = f.path
@@ -359,6 +403,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					break
 				}
 			}
+		}
+		if m.semantic && m.semData == nil && !m.semLoading {
+			m.semLoading = true
+			return m, tea.Batch(loadSemData, m.loadPreview())
+		}
+		return m, m.loadPreview()
+
+	case semLoadedMsg:
+		m.semLoading = false
+		if msg.err == nil && msg.data != nil {
+			m.semData = msg.data
+		}
+		if m.fullScreen {
+			return m, m.openFullDiff()
 		}
 		return m, m.loadPreview()
 

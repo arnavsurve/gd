@@ -10,6 +10,7 @@ import (
 type palette struct {
 	bgAdd       string
 	bgDel       string
+	bgMoved     string
 	lineNum     string
 	hunkHdr     string
 	fileHdr     string
@@ -28,12 +29,16 @@ type palette struct {
 	border      string
 	search      string
 	title       string
+	movedHdr    string
+	renamedHdr  string
+	summaryFg   string
 	chromaStyle string
 }
 
 var darkPalette = palette{
 	bgAdd:       "#1a2b1f",
 	bgDel:       "#2b1d1e",
+	bgMoved:     "#1a1f2b",
 	lineNum:     "#484f58",
 	hunkHdr:     "#79c0ff",
 	fileHdr:     "#e6edf3",
@@ -52,12 +57,16 @@ var darkPalette = palette{
 	border:      "#30363d",
 	search:      "#79c0ff",
 	title:       "#e6edf3",
+	movedHdr:    "#58a6ff",
+	renamedHdr:  "#d29922",
+	summaryFg:   "#8b949e",
 	chromaStyle: "tokyonight-night",
 }
 
 var lightPalette = palette{
 	bgAdd:       "#e8f5e9",
 	bgDel:       "#fce8e6",
+	bgMoved:     "#ddf4ff",
 	lineNum:     "#57606a",
 	hunkHdr:     "#0969da",
 	fileHdr:     "#1f2328",
@@ -76,28 +85,34 @@ var lightPalette = palette{
 	border:      "#d0d7de",
 	search:      "#0969da",
 	title:       "#1f2328",
+	movedHdr:    "#0969da",
+	renamedHdr:  "#9a6700",
+	summaryFg:   "#656d76",
 	chromaStyle: "tokyonight-day",
 }
 
 var pal palette
 
 var (
-	lineNumSty  lipgloss.Style
-	hunkHdrSty  lipgloss.Style
-	fileHdrSty  lipgloss.Style
-	gutterSty   lipgloss.Style
-	addIndSty   lipgloss.Style
-	delIndSty   lipgloss.Style
-	ctxDimSty   lipgloss.Style
-	dirSty      lipgloss.Style
-	fileSty     lipgloss.Style
-	cursorSty   lipgloss.Style
-	stagedBadge lipgloss.Style
-	unstBadge   lipgloss.Style
-	untrkBadge  lipgloss.Style
-	borderSty   lipgloss.Style
-	searchSty   lipgloss.Style
-	titleSty    lipgloss.Style
+	lineNumSty   lipgloss.Style
+	hunkHdrSty   lipgloss.Style
+	fileHdrSty   lipgloss.Style
+	gutterSty    lipgloss.Style
+	addIndSty    lipgloss.Style
+	delIndSty    lipgloss.Style
+	ctxDimSty    lipgloss.Style
+	dirSty       lipgloss.Style
+	fileSty      lipgloss.Style
+	cursorSty    lipgloss.Style
+	stagedBadge  lipgloss.Style
+	unstBadge    lipgloss.Style
+	untrkBadge   lipgloss.Style
+	borderSty    lipgloss.Style
+	searchSty    lipgloss.Style
+	titleSty     lipgloss.Style
+	movedHdrSty  lipgloss.Style
+	renamedHdrSty lipgloss.Style
+	summarySty   lipgloss.Style
 )
 
 var bgColors map[diffBg]string
@@ -133,10 +148,15 @@ func applyTheme() {
 	searchSty = lipgloss.NewStyle().Foreground(lipgloss.Color(pal.search))
 	titleSty = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(pal.title))
 
+	movedHdrSty = lipgloss.NewStyle().Foreground(lipgloss.Color(pal.movedHdr))
+	renamedHdrSty = lipgloss.NewStyle().Foreground(lipgloss.Color(pal.renamedHdr))
+	summarySty = lipgloss.NewStyle().Foreground(lipgloss.Color(pal.summaryFg))
+
 	bgColors = map[diffBg]string{
 		bgNone: "",
 		bgAdd:  pal.bgAdd,
 		bgDel:  pal.bgDel,
+		bgMov:  pal.bgMoved,
 	}
 }
 
