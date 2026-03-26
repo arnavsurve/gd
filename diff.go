@@ -10,7 +10,22 @@ import (
 const sideBySideMinWidth = 120
 
 func expandTabs(s string) string {
-	return strings.ReplaceAll(s, "\t", "    ")
+	tabWidth := 4
+	if w := cfg.TabWidth; w > 0 {
+		tabWidth = w
+	}
+	return strings.ReplaceAll(s, "\t", strings.Repeat(" ", tabWidth))
+}
+
+func truncateRunes(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	if max <= 1 {
+		return "…"
+	}
+	return string(runes[:max-1]) + "…"
 }
 
 func wrapText(text string, w int) []string {
@@ -34,17 +49,14 @@ func wrapText(text string, w int) []string {
 	return chunks
 }
 
-func trimLine(s string) string {
+func stripTrailingNewlines(s string) string {
 	return strings.TrimRight(s, "\n\r")
 }
 
 func fitStr(s string, w int) string {
 	runes := []rune(s)
 	if len(runes) > w {
-		if w <= 1 {
-			return "…"
-		}
-		return string(runes[:w-1]) + "…"
+		return truncateRunes(s, w)
 	}
 	if len(runes) < w {
 		return s + strings.Repeat(" ", w-len(runes))
@@ -60,7 +72,7 @@ type lineGroup struct {
 func groupLines(lines []gitdiff.Line) []lineGroup {
 	var groups []lineGroup
 	for _, l := range lines {
-		text := trimLine(l.Line)
+		text := stripTrailingNewlines(l.Line)
 		if len(groups) > 0 && groups[len(groups)-1].op == l.Op {
 			groups[len(groups)-1].lines = append(groups[len(groups)-1].lines, text)
 		} else {
@@ -277,7 +289,7 @@ func renderSingleColumn(b *strings.Builder, frag *gitdiff.TextFragment, width in
 	lineNum := int(frag.NewPosition)
 
 	for _, line := range frag.Lines {
-		text := trimLine(line.Line)
+		text := stripTrailingNewlines(line.Line)
 		chunks := wrapText(text, textW)
 
 		bg := bgNone
@@ -313,7 +325,7 @@ func renderUnified(b *strings.Builder, frag *gitdiff.TextFragment, width int, hl
 	blankPrefix := strings.Repeat(" ", numW*2+4)
 
 	for _, line := range frag.Lines {
-		text := trimLine(line.Line)
+		text := stripTrailingNewlines(line.Line)
 
 		chunks := wrapText(text, textW)
 

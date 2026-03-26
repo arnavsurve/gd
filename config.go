@@ -12,6 +12,7 @@ type config struct {
 	LightTheme   string  `json:"lightTheme"`
 	SidebarRatio float64 `json:"sidebarRatio,omitempty"`
 	Semantic     *bool   `json:"semantic,omitempty"`
+	TabWidth     int     `json:"tabWidth,omitempty"`
 }
 
 var cfg config
