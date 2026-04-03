@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os/exec"
+	"runtime"
+
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/lipgloss"
@@ -119,9 +122,21 @@ var bgColors map[diffBg]string
 
 var darkMode bool
 
-func initTheme() {
-	darkMode = termenv.HasDarkBackground()
+func initTheme(pager bool) {
+	if pager {
+		darkMode = systemHasDarkAppearance()
+	} else {
+		darkMode = termenv.HasDarkBackground()
+	}
 	applyTheme()
+}
+
+func systemHasDarkAppearance() bool {
+	if runtime.GOOS != "darwin" {
+		return true
+	}
+	err := exec.Command("defaults", "read", "-g", "AppleInterfaceStyle").Run()
+	return err == nil
 }
 
 func applyTheme() {

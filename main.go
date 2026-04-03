@@ -54,7 +54,7 @@ func stdinIsPipe() bool {
 
 func runPager() {
 	loadConfig()
-	initTheme()
+	initTheme(true)
 
 	data, err := io.ReadAll(os.Stdin)
 	if err != nil {
@@ -95,7 +95,7 @@ func main() {
 	}
 
 	loadConfig()
-	initTheme()
+	initTheme(false)
 
 	semantic := false
 	if cfg.Semantic != nil {
