@@ -170,8 +170,8 @@ func tickCmd() tea.Cmd {
 
 func refreshFiles() tea.Msg {
 	var files []fileStatus
-	if flagMain {
-		files, _ = getMainFiles()
+	if flagBase != "" {
+		files, _ = getBaseFiles(flagBase)
 	} else {
 		files, _ = getChangedFiles()
 	}

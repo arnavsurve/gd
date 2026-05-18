@@ -20,7 +20,7 @@ func loadSemData() tea.Msg {
 		return semLoadedMsg{err: err}
 	}
 	var staged *semOutput
-	if commitFrom == "" && !flagMain {
+	if commitFrom == "" && flagBase == "" {
 		staged, _ = runSemDiffStaged()
 	}
 	return semLoadedMsg{data: &semCache{unstaged: unstaged, staged: staged}}

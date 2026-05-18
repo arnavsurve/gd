@@ -60,8 +60,8 @@ func runSemDiff() (*semOutput, error) {
 
 	if commitFrom != "" {
 		args = append(args, "--from", commitFrom, "--to", commitTo)
-	} else if flagMain {
-		args = append(args, "--from", "main", "--to", "HEAD")
+	} else if flagBase != "" {
+		args = append(args, "--from", flagBase, "--to", "HEAD")
 	}
 
 	out, err := exec.Command("sem", args...).Output()
@@ -120,7 +120,7 @@ func (c *semCache) changesForFile(path string, f fileStatus) []semChange {
 			}
 		}
 	}
-	if commitFrom != "" || flagMain {
+	if commitFrom != "" || flagBase != "" {
 		if c.unstaged != nil {
 			for _, ch := range c.unstaged.Changes {
 				if ch.FilePath == path {

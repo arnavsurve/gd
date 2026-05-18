@@ -81,10 +81,11 @@ func getCommitFiles(from, to string) ([]fileStatus, error) {
 	return files, nil
 }
 
-func getMainFiles() ([]fileStatus, error) {
-	out, err := exec.Command("git", "diff", "--name-only", "main...HEAD").Output()
+func getBaseFiles(base string) ([]fileStatus, error) {
+	spec := base + "...HEAD"
+	out, err := exec.Command("git", "diff", "--name-only", spec).Output()
 	if err != nil {
-		return nil, fmt.Errorf("git diff --name-only main...HEAD: %w", err)
+		return nil, fmt.Errorf("git diff --name-only %s: %w", spec, err)
 	}
 	var files []fileStatus
 	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
@@ -115,8 +116,8 @@ func getDiffOutput(f fileStatus, fullFile bool, contextLines int) string {
 	var cmds []string
 	if commitFrom != "" {
 		cmds = append(cmds, fmt.Sprintf("git diff %s%s..%s -- %q", ctx, commitFrom, commitTo, f.path))
-	} else if flagMain {
-		cmds = append(cmds, fmt.Sprintf("git diff %smain...HEAD -- %q", ctx, f.path))
+	} else if flagBase != "" {
+		cmds = append(cmds, fmt.Sprintf("git diff %s%s...HEAD -- %q", ctx, flagBase, f.path))
 	} else {
 		if f.unstaged {
 			cmds = append(cmds, fmt.Sprintf("git diff %s-- %q", ctx, f.path))

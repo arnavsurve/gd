@@ -15,6 +15,7 @@ import (
 )
 
 var flagMain bool
+var flagBase string
 var flagSemantic bool
 var flagNoSemantic bool
 
@@ -80,10 +81,15 @@ func main() {
 		return
 	}
 
-	flag.BoolVar(&flagMain, "main", false, "diff against main branch")
+	flag.BoolVar(&flagMain, "main", false, "diff against main branch (shorthand for --base main)")
+	flag.StringVar(&flagBase, "base", "", "diff against the given base branch")
 	flag.BoolVar(&flagSemantic, "semantic", false, "enable semantic diff mode (requires sem CLI)")
 	flag.BoolVar(&flagNoSemantic, "no-semantic", false, "disable semantic diff mode")
 	flag.Parse()
+
+	if flagMain && flagBase == "" {
+		flagBase = "main"
+	}
 
 	if args := flag.Args(); len(args) > 0 && strings.HasPrefix(args[0], "@") {
 		var err error
@@ -116,8 +122,8 @@ func main() {
 	var err error
 	if commitFrom != "" {
 		files, err = getCommitFiles(commitFrom, commitTo)
-	} else if flagMain {
-		files, err = getMainFiles()
+	} else if flagBase != "" {
+		files, err = getBaseFiles(flagBase)
 	} else {
 		files, err = getChangedFiles()
 	}

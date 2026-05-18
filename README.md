@@ -27,11 +27,12 @@ unalias gd 2>/dev/null
 Run `gd` in a git repo.
 
 ```
-gd          # browse staged, unstaged, and untracked files
-gd --main   # browse files changed vs main branch
-gd @1       # diff of last commit
-gd @3       # diff of last 3 commits
-gd @2..4    # diff of commits 2 through 4 back
+gd                    # browse staged, unstaged, and untracked files
+gd --main             # browse files changed vs main branch
+gd --base feature/x   # browse files changed vs an arbitrary base branch
+gd @1                 # diff of last commit
+gd @3                 # diff of last 3 commits
+gd @2..4              # diff of commits 2 through 4 back
 ```
 
 ### Navigation
