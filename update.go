@@ -203,7 +203,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "ctrl+d":
 			prev := m.cursor
-			half := (m.height - 2) / 2
+			half := m.treeVisibleH() / 2
 			if half < 1 {
 				half = 1
 			}
@@ -214,7 +214,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "ctrl+u":
 			prev := m.cursor
-			half := (m.height - 2) / 2
+			half := m.treeVisibleH() / 2
 			if half < 1 {
 				half = 1
 			}
@@ -322,7 +322,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					delta = -delta
 				}
 				m.scroll += delta
-				maxScroll := len(m.filtered) - (m.height - 2)
+				maxScroll := len(m.filtered) - m.treeVisibleH()
 				if maxScroll < 0 {
 					maxScroll = 0
 				}
@@ -339,14 +339,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress && msg.X < m.treeW {
-			clicked := m.scroll + (msg.Y - 1)
-			if clicked >= 0 && clicked < len(m.filtered) {
-				if m.allLines[m.filtered[clicked]].file != nil {
-					prev := m.cursor
-					m.cursor = clicked
-					if m.cursor != prev {
-						return m, m.loadPreview()
-					}
+			clicked := m.treeRowToIndex(msg.Y)
+			if clicked >= 0 && m.allLines[m.filtered[clicked]].file != nil {
+				prev := m.cursor
+				m.cursor = clicked
+				if m.cursor != prev {
+					return m, m.loadPreview()
 				}
 			}
 			return m, nil

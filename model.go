@@ -250,6 +250,37 @@ func clampTreeW(w int) int {
 	return w
 }
 
+// The sidebar spends its first row on a title and the screen its last row on
+// the status bar. Every layout and hit-test calculation budgets for both, so
+// they live here rather than as scattered literals.
+const (
+	treeTitleRows = 1
+	statusBarRows = 1
+)
+
+// treeVisibleH is how many entry rows the sidebar can draw.
+func (m model) treeVisibleH() int {
+	h := m.height - treeTitleRows - statusBarRows
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
+// treeRowToIndex maps a screen row to an index into m.filtered, or -1 when the
+// row holds no entry — the title, the status bar, or padding past the last file.
+func (m model) treeRowToIndex(y int) int {
+	row := y - treeTitleRows
+	if row < 0 || row >= m.treeVisibleH() {
+		return -1
+	}
+	i := m.scroll + row
+	if i >= len(m.filtered) {
+		return -1
+	}
+	return i
+}
+
 func (m *model) resizeLayout() {
 	if m.width == 0 {
 		return
@@ -264,9 +295,9 @@ func (m *model) resizeLayout() {
 		vpW = 20
 	}
 	m.viewport.Width = vpW
-	m.viewport.Height = m.height - 1
+	m.viewport.Height = m.height - statusBarRows
 	m.fullViewport.Width = m.width
-	m.fullViewport.Height = m.height - 1
+	m.fullViewport.Height = m.height - statusBarRows
 }
 
 func (m *model) moveCursorN(n int) {
@@ -301,10 +332,7 @@ func (m *model) moveCursor(delta int) {
 		return
 	}
 	m.cursor = next
-	visibleH := m.height - 2
-	if visibleH < 1 {
-		visibleH = 1
-	}
+	visibleH := m.treeVisibleH()
 	if m.cursor < m.scroll {
 		m.scroll = m.cursor
 	}

@@ -12,10 +12,7 @@ func (m model) renderThemePicker() string {
 	b.WriteString(titleSty.Render(fitStr("Syntax Theme", contentW)))
 	b.WriteByte('\n')
 
-	visibleH := m.height - 2
-	if visibleH < 1 {
-		visibleH = 1
-	}
+	visibleH := m.treeVisibleH()
 
 	scroll := 0
 	if m.themeCursor >= visibleH {
@@ -56,10 +53,7 @@ func (m model) renderTree() string {
 	b.WriteString(titleSty.Render(title))
 	b.WriteByte('\n')
 
-	visibleH := m.height - 2
-	if visibleH < 1 {
-		visibleH = 1
-	}
+	visibleH := m.treeVisibleH()
 	end := m.scroll + visibleH
 	if end > len(m.filtered) {
 		end = len(m.filtered)
@@ -161,7 +155,7 @@ func (m model) View() string {
 
 	treeView := m.renderTree()
 
-	contentH := m.height - 1
+	contentH := m.height - statusBarRows
 	var border strings.Builder
 	for i := 0; i < contentH; i++ {
 		border.WriteString(borderSty.Render("│"))

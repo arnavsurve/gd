@@ -92,6 +92,60 @@ func TestClickSelectsRowUnderPointer(t *testing.T) {
 	}
 }
 
+func clickTree(m model, y int) model {
+	next, _ := m.Update(tea.MouseMsg{
+		X:      1,
+		Y:      y,
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+	})
+	return next.(model)
+}
+
+func testModelPaths(paths []string, w, h int) model {
+	files := make([]fileStatus, len(paths))
+	for i, p := range paths {
+		files[i] = fileStatus{path: p, unstaged: true}
+	}
+	m := initialModel(files, false)
+	m.width, m.height = w, h
+	m.resizeLayout()
+	m.ready = true
+	return m
+}
+
+// Rows that aren't sidebar entries must not select anything, even when the
+// index arithmetic alone would land them on a real file. Height 5 gives a
+// 3-row viewport: title on row 0, entries on rows 1-3, status bar on row 4.
+func TestClickOutsideEntriesDoesNotSelect(t *testing.T) {
+	paths := []string{"f0.go", "f1.go", "f2.go", "f3.go", "f4.go", "f5.go", "f6.go", "f7.go"}
+
+	tests := []struct {
+		name   string
+		height int
+		scroll int
+		row    int
+	}{
+		{"title row while scrolled", 5, 1, 0},
+		{"status bar row", 5, 1, 4},
+		{"blank row below last entry", 20, 0, 12},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := testModelPaths(paths, 100, tc.height)
+			m.scroll = tc.scroll
+			m.cursor = 2 // distinct from any row the arithmetic could reach
+
+			got := clickTree(m, tc.row)
+
+			if got.cursor != 2 {
+				t.Errorf("clicking row %d moved cursor 2 -> %d (%v), want it left alone",
+					tc.row, got.cursor, got.selectedFile())
+			}
+		})
+	}
+}
+
 func TestClickSelectsRowUnderPointerWhenScrolled(t *testing.T) {
 	m := testModel(100, 5) // visibleH of 3, so the 4-file tree scrolls
 	m.scroll = 1
