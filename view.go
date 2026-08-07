@@ -43,7 +43,7 @@ func (m model) renderThemePicker() string {
 		b.WriteByte('\n')
 	}
 
-	return b.String()
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 func (m model) renderTree() string {
@@ -122,7 +122,7 @@ func (m model) renderTree() string {
 		b.WriteByte('\n')
 	}
 
-	return b.String()
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 func (m model) renderStatusBar() string {
