@@ -139,6 +139,9 @@ func (m model) renderStatusBar() string {
 	if m.semantic {
 		text = "semantic  " + text
 	}
+	if m.warning != "" {
+		text = m.warning + "  " + text
+	}
 	return borderSty.Render(fitStr(text, m.width))
 }
 

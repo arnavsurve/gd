@@ -131,7 +131,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-	p := tea.NewProgram(initialModel(files, semantic), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	m := initialModel(files, semantic)
+	if flagBase != "" {
+		m.warning = staleBaseWarning(flagBase)
+	}
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

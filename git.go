@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -79,6 +80,28 @@ func getCommitFiles(from, to string) ([]fileStatus, error) {
 		}
 	}
 	return files, nil
+}
+
+func staleBaseWarning(base string) string {
+	if base == "" || strings.Contains(base, "/") {
+		return ""
+	}
+	if err := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+base).Run(); err != nil {
+		return ""
+	}
+	remote := "origin/" + base
+	if err := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/remotes/"+remote).Run(); err != nil {
+		return ""
+	}
+	out, err := exec.Command("git", "rev-list", "--count", base+".."+remote).Output()
+	if err != nil {
+		return ""
+	}
+	behind, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil || behind == 0 {
+		return ""
+	}
+	return fmt.Sprintf("warning: %q is %d commits behind %q; use --base %s to match the remote diff", base, behind, remote, remote)
 }
 
 func getBaseFiles(base string) ([]fileStatus, error) {

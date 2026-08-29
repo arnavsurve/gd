@@ -59,6 +59,8 @@ type model struct {
 	fullHunkLines []int
 	fullFileName  string
 
+	warning string
+
 	semantic   bool
 	semData    *semCache
 	semLoading bool
